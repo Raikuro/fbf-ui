@@ -1,0 +1,21 @@
+# Python bytecode / environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Runtime data output (do not commit runtime generated databases)
+data/runtime/
+.data/
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
