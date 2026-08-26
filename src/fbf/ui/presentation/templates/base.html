@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} — FIRE Backtesting Framework</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <header>
+        <div class="nav-container">
+            <a href="/" class="brand">FBF UI</a>
+            <nav>
+                <a href="/" class="nav-link {% if active_section == 'dashboard' %}active{% endif %}">Dashboard</a>
+                <a href="/study" class="nav-link {% if active_section == 'study' %}active{% endif %}">Study Config</a>
+                <a href="/run" class="nav-link {% if active_section == 'run' %}active{% endif %}">Run</a>
+                <a href="/results" class="nav-link {% if active_section == 'results' %}active{% endif %}">Results</a>
+                <a href="/compare" class="nav-link {% if active_section == 'compare' %}active{% endif %}">Compare</a>
+                <a href="/persistence" class="nav-link {% if active_section == 'persistence' %}active{% endif %}">Persistence</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <div class="footer-container">
+            <span>FIRE Backtesting Framework UI (FBF UI v{{ ui_version }})</span>
+            <span>Core Engine: v{{ core_version }}</span>
+        </div>
+    </footer>
+</body>
+</html>

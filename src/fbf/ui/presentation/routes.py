@@ -1,51 +1,76 @@
-"""Presentation web routes for HTML view rendering."""
+"""Presentation web routes serving server-rendered HTML views."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from pathlib import Path
+
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fbf.core import __version__ as core_version
+
+from fbf.ui import __version__ as ui_version
+
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 presentation_router = APIRouter()
 
 
+def _common_context(request: Request, page_title: str, active_section: str) -> dict[str, object]:
+    """Construct standard Jinja2 rendering context."""
+    return {
+        "request": request,
+        "page_title": page_title,
+        "active_section": active_section,
+        "core_version": core_version,
+        "ui_version": ui_version,
+    }
+
+
 @presentation_router.get("/", response_class=HTMLResponse)
-def index() -> str:
-    """Render application landing shell."""
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FBF UI — FIRE Backtesting Framework</title>
-    <style>
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            margin: 2rem;
-            background: #0f172a;
-            color: #f8fafc;
-        }
-        .card {
-            background: #1e293b;
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            border: 1px solid #334155;
-        }
-        h1 { color: #38bdf8; }
-        code {
-            background: #0f172a;
-            padding: 0.2rem 0.4rem;
-            border-radius: 0.25rem;
-            color: #a5f3fc;
-        }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>FIRE Backtesting Framework UI (FBF UI)</h1>
-        <p>Web Delivery, Application Orchestration & Visualization Layer</p>
-        <p>System Status: <code>ONLINE</code></p>
-        <p>API Endpoint: <a href="/api/v1/health" style="color: #38bdf8;">/api/v1/health</a></p>
-    </div>
-</body>
-</html>
-"""
+def index(request: Request) -> HTMLResponse:
+    """Render dashboard page."""
+    context = _common_context(request, page_title="Dashboard", active_section="dashboard")
+    return templates.TemplateResponse(request, "dashboard.html", context)
+
+
+@presentation_router.get("/study", response_class=HTMLResponse)
+def study_view(request: Request) -> HTMLResponse:
+    """Render study configuration page."""
+    context = _common_context(request, page_title="Study Configuration", active_section="study")
+    return templates.TemplateResponse(request, "study.html", context)
+
+
+@presentation_router.get("/run", response_class=HTMLResponse)
+def run_view(request: Request) -> HTMLResponse:
+    """Render simulation run page."""
+    context = _common_context(request, page_title="Simulation Run", active_section="run")
+    return templates.TemplateResponse(request, "run.html", context)
+
+
+@presentation_router.get("/results", response_class=HTMLResponse)
+def results_view(request: Request) -> HTMLResponse:
+    """Render results & visualization page."""
+    context = _common_context(
+        request, page_title="Results & Visualization", active_section="results"
+    )
+    return templates.TemplateResponse(request, "results.html", context)
+
+
+@presentation_router.get("/compare", response_class=HTMLResponse)
+def compare_view(request: Request) -> HTMLResponse:
+    """Render strategy comparator page."""
+    context = _common_context(
+        request, page_title="Strategy Comparator", active_section="compare"
+    )
+    return templates.TemplateResponse(request, "compare.html", context)
+
+
+@presentation_router.get("/persistence", response_class=HTMLResponse)
+def persistence_view(request: Request) -> HTMLResponse:
+    """Render SQLite persistence page."""
+    context = _common_context(
+        request, page_title="SQLite Persistence", active_section="persistence"
+    )
+    return templates.TemplateResponse(request, "persistence.html", context)

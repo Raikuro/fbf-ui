@@ -5,9 +5,10 @@
 | Property | Status |
 |----------|--------|
 | Package Version | `0.1.0` |
-| Active Phase | `P1 — Bootstrap and Tooling` |
-| Phase State | `PHASE P1 READY FOR COMMIT — AWAITING AUTHORIZATION` |
+| Active Phase | `P2 — Application Shell & UI Presentation Foundation` |
+| Phase State | `COMPLETE (Frozen at commit 7b9337b)` |
 | Core Dependency | `fbf-core 0.1.0` (editable sibling dependency) |
+| Dedicated Venv | `/mnt/datos/workspace/fbf/fbf-ui/.venv` |
 | Quality Gates | All passing (`ruff`, `mypy --strict`, `pytest`, boundary contracts) |
 
 ---
@@ -15,15 +16,15 @@
 ## Completed Milestones & Phases
 
 - [x] **P0 — Repository Architecture & Investigation**: Evaluated stack options, established dependency strategy, defined layer boundaries, produced capability matrix and visualization catalog.
-- [x] **P1 — Project Bootstrap & Tooling**: Created `fbf-ui` package, set up setuptools configuration, FastAPI app shell, health endpoint reporting installed `fbf-core` version, contract tests, and documentation.
+- [x] **P1 — Project Bootstrap & Tooling** (Frozen at commit `5009989`): Created `fbf-ui` package, set up setuptools configuration, dedicated `.venv`, FastAPI app shell, health endpoint reporting installed `fbf-core` version, contract tests, and documentation.
+- [x] **P2 — Application Shell & UI Presentation Foundation** (Frozen at commit `7b9337b`): Built Jinja2 presentation templates (`base.html`, `dashboard.html`, `study.html`, `run.html`, `results.html`, `compare.html`, `persistence.html`), static dark theme CSS (`/static/css/app.css`), package-relative path resolution, active tab navbar highlighting, template unit tests, and scaffolding placeholders.
 
 ---
 
-## Active Phase: P1 Bootstrap
+## Active Phase: P2 Application Shell & Presentation Foundation
 
 ### Status
-Implementation and quality gate validation are **complete**. Working tree is ready.
-Awaiting explicit user authorization before creating the single atomic commit for Phase P1.
+Phase P2 is **COMPLETE** and frozen at commit `7b9337b`.
 
 ---
 
@@ -39,6 +40,4 @@ Awaiting explicit user authorization before creating the single atomic commit fo
 
 ## Next Steps
 
-1. Request user authorization for Phase P1 commit.
-2. After commit creation, update Phase P1 to `COMPLETE`.
-3. Proceed to **P2 — Application Shell & Navigation Layout**.
+1. Await explicit user instructions and planning approval for **P3 — YAML Workflows & Configuration Parsing**.

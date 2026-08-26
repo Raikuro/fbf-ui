@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">FBF Dashboard</h1>
+    <p class="page-description">Web interface & orchestration workspace for the FIRE Backtesting Framework</p>
+</div>
+
+<div class="card">
+    <h2 class="card-title">System Status</h2>
+    <p>Engine status: <strong>ONLINE</strong></p>
+    <p>Core version: <code>{{ core_version }}</code> | UI version: <code>{{ ui_version }}</code></p>
+    <p>API Endpoint: <code>/api/v1/health</code></p>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Functional Workspaces</h2>
+    <p>Use the top navigation bar to access functional workspaces:</p>
+    <ul style="margin-left: 1.5rem; margin-top: 0.5rem; color: var(--text-muted);">
+        <li><strong>Study Config:</strong> Scaffolding for YAML loading and parameter editing (P3–P5).</li>
+        <li><strong>Run:</strong> Scaffolding for simulation dry-runs and execution state tracking (P6–P7).</li>
+        <li><strong>Results:</strong> Scaffolding for interactive cohort heatmaps & charts (P10–P12).</li>
+        <li><strong>Compare:</strong> Scaffolding for multi-strategy evaluation (P13).</li>
+        <li><strong>Persistence:</strong> Scaffolding for SQLite study database browsing (P8–P9).</li>
+    </ul>
+    <div class="placeholder-badge">Scaffolding Placeholder — Phase P2 Shell</div>
+</div>
+{% endblock %}
