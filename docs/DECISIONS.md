@@ -36,15 +36,15 @@ Clean architecture requires clear dependency direction. Web UI and CLI are prese
 
 ---
 
-## ADR 003: Explicit File & Storage Semantics
+## ADR 003: Explicit File & Storage Semantics & Path Security
 
 ### Context
 Users need to load YAML study configurations and open SQLite study databases, operating across local desktop and web environments.
 
 ### Decision
 `fbf-ui` explicitly categorizes 5 storage modes:
-1. **Uploaded Configuration**: EPHEMERAL upload via HTTP multipart form.
-2. **Server Filesystem Reference**: Direct server path access for local deployment mode.
+1. **Uploaded Configuration**: EPHEMERAL upload via HTTP multipart form (`POST /api/v1/study/upload`).
+2. **Server Filesystem Reference**: Direct server path access (`POST /api/v1/study/parse-path`) constrained by a workspace security boundary. Server path references MUST resolve within a designated workspace root directory (`StudyService.workspace_root`). Arbitrary machine paths and path traversal attempts (`../`) escaping the workspace root are rejected with HTTP 403 Forbidden.
 3. **Browser Local FS Reference**: HTML5 File API access.
 4. **Persisted Configuration**: Inline configuration stored within SQLite experiment records.
 5. **SQLite Database Reference**: Path to local `.db`/`.sqlite` file managed via `fbf.core.persistence`.

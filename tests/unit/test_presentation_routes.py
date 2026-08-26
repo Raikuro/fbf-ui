@@ -34,7 +34,7 @@ def test_study_route(client: TestClient) -> None:
     assert 'href="/study" class="nav-link active"' in html
     assert 'href="/" class="nav-link "' in html
     assert 'href="/run" class="nav-link "' in html
-    assert "Scaffolding Placeholder" in html
+    assert "Phase P5" in html
 
 
 def test_run_route(client: TestClient) -> None:

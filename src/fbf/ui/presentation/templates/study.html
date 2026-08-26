@@ -3,12 +3,41 @@
 {% block content %}
 <div class="page-header">
     <h1 class="page-title">Study Configuration Workspace</h1>
-    <p class="page-description">Configure, import, and validate FIRE simulation parameters</p>
+    <p class="page-description">Load, parse, and display FIRE simulation YAML configurations</p>
 </div>
 
 <div class="card">
-    <h2 class="card-title">Configuration Editor & YAML Import</h2>
-    <p>Structured configuration forms and YAML file parsing workflows will be available in subsequent implementation phases.</p>
-    <div class="placeholder-badge">Scaffolding Placeholder — YAML import and validation available in Phase P3/P4</div>
+    <h2 class="card-title">1. File Upload (Multipart Form)</h2>
+    <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Select a local <code>.yaml</code> study configuration file to parse.</p>
+    <form action="/api/v1/study/upload" method="post" enctype="multipart/form-data" style="display: flex; gap: 0.75rem; align-items: center;">
+        <input type="file" name="file" accept=".yaml,.yml" style="color: var(--text-main); background: var(--tag-bg); border: 1px solid var(--border-color); padding: 0.4rem; border-radius: 0.25rem;">
+        <button type="submit" style="background: var(--accent-blue); color: var(--bg-main); border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; font-weight: 600; cursor: pointer;">Parse Upload</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2 class="card-title">2. Server Path Reference</h2>
+    <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Specify a YAML file path relative to the allowed workspace root.</p>
+    <form action="/api/v1/study/parse-path" method="post" style="display: flex; gap: 0.75rem; align-items: center;">
+        <input type="text" name="path" placeholder="examples/baseline_study.yaml" style="flex: 1; color: var(--text-main); background: var(--tag-bg); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 0.25rem;">
+        <button type="submit" style="background: var(--accent-blue); color: var(--bg-main); border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; font-weight: 600; cursor: pointer;">Parse Path</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2 class="card-title">3. Raw YAML Text Input</h2>
+    <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Paste raw YAML configuration text directly.</p>
+    <form action="/api/v1/study/parse-text" method="post" style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <textarea name="yaml_content" rows="6" placeholder="metadata:&#10;  name: Baseline Study&#10;dataset:&#10;  identifier: sp500_historical&#10;..." style="color: var(--text-main); background: var(--tag-bg); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 0.25rem; font-family: monospace;"></textarea>
+        <div>
+            <button type="submit" style="background: var(--accent-blue); color: var(--bg-main); border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; font-weight: 600; cursor: pointer;">Parse Text</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Parsed Canonical Configuration Display</h2>
+    <p style="color: var(--text-muted);">Imported study parameters will be displayed here as read-only canonical DTO structures. Structured form editing and parameter mutation will be available in Phase P5.</p>
+    <div class="placeholder-badge">Read-only Parsing Display — Interactive Editing available in Phase P5</div>
 </div>
 {% endblock %}

@@ -85,6 +85,14 @@ def test_presentation_does_not_access_sqlite() -> None:
         assert "sqlite3" not in content, f"Direct sqlite3 reference in presentation file {py_file}"
 
 
+def test_api_does_not_access_sqlite() -> None:
+    """Verify API modules do not import sqlite3 directly."""
+    api_path = UI_SRC / "api"
+    for py_file in _get_python_files(api_path):
+        content = py_file.read_text(encoding="utf-8")
+        assert "sqlite3" not in content, f"Direct sqlite3 reference in API file {py_file}"
+
+
 def test_no_machine_specific_absolute_paths() -> None:
     """Verify no hardcoded machine-specific absolute paths exist in source or tests."""
     forbidden = ("/" + "home/", "/" + "Users/", "C:" + "\\")

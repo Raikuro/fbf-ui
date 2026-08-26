@@ -115,9 +115,10 @@ Financial calculations are performed by Core. The UI visualization layer handles
 
 The architecture distinguishes 5 file handling modes:
 
-1. **Uploaded Configuration**: User uploads a `.yaml` file via browser POST. Maintained in ephemeral session state or parsed directly into a DTO.
-2. **Server Filesystem Reference**: Server reads an existing local configuration file path (e.g. `data/studies/example.yaml`) when running in local desktop mode.
-3. **Browser Local Filesystem Reference**: Explicit handling of local file references via HTML5 File API / File System Access API where available.
+1. **Uploaded Configuration**: User uploads a `.yaml` file via HTTP POST (`POST /api/v1/study/upload`). Parsed directly into an ephemeral `StudyConfigDTO`.
+2. **Server Filesystem Reference**: Server reads an existing local configuration file path (`POST /api/v1/study/parse-path`) when running in local desktop mode.
+   * **Workspace Security Boundary**: Server path references MUST resolve within a designated, configurable workspace root (`StudyService.workspace_root`). Arbitrary machine paths (e.g. `/etc/passwd`, `~/.ssh/`) and path traversal attempts (`../`) escaping the permitted root are strictly forbidden and return HTTP 403.
+3. **Browser Local Filesystem Reference**: Explicit handling of local file references via HTML5 File API / File System Access API where available. Browser paths are never assumed to be transparently accessible to the server process.
 4. **Persisted Configuration**: Study configuration serialized inside an SQLite experiment record.
 5. **SQLite Database Reference**: Path to a local SQLite study database file (`.db` / `.sqlite`) managed by `fbf.core.persistence`.
 
