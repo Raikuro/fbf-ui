@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,9 +13,17 @@ from fastapi.staticfiles import StaticFiles
 
 from fbf.ui import __version__
 from fbf.ui.api import api_v1_router
+from fbf.ui.api.run import _service as _execution_service
 from fbf.ui.presentation import presentation_router
 
 STATIC_DIR = Path(__file__).resolve().parent / "presentation" / "static"
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Application lifespan: startup and shutdown hooks."""
+    yield
+    _execution_service.shutdown(wait=False)
 
 
 def create_app() -> FastAPI:
@@ -22,6 +32,7 @@ def create_app() -> FastAPI:
         title="FBF UI — FIRE Backtesting Framework",
         description="Web Interface, Application Orchestration, and Visualization for FBF.",
         version=__version__,
+        lifespan=_lifespan,
     )
 
     # Configure CORS for local development
