@@ -140,3 +140,39 @@ class StudyService:
                 unit_count=0,
                 errors=[str(err)],
             )
+
+    def config_dto_to_canonical_dict(self, config_dto: StudyConfigDTO) -> dict[str, Any]:
+        """Convert StudyConfigDTO back to canonical Core configuration dict."""
+        canonical = {
+            "metadata": {
+                "name": config_dto.name,
+                "description": config_dto.description,
+                "version": config_dto.version,
+            },
+            "dataset": {
+                "identifier": config_dto.dataset_identifier,
+            },
+            "allocation_policy": {
+                "type": config_dto.allocation_policy_type,
+                "equity_allocation": config_dto.allocation_policy_values,
+            },
+            "withdrawal_policy": {
+                "type": config_dto.withdrawal_policy_type,
+                "withdrawal_rate": config_dto.withdrawal_policy_values,
+            },
+            "cohorts": {
+                "horizon_years": config_dto.horizon_years,
+            },
+        }
+
+        if config_dto.final_value_target_values is not None:
+            canonical["final_value_target_values"] = config_dto.final_value_target_values
+
+        return canonical
+
+    def validate_config_dto(
+        self, config_dto: StudyConfigDTO, data_dir: str | None = None
+    ) -> ValidationResultDTO:
+        """Validate StudyConfigDTO fields using Core validation."""
+        canonical = self.config_dto_to_canonical_dict(config_dto)
+        return self.validate_configuration(canonical, data_dir)

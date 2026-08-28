@@ -1,4 +1,4 @@
-"""API routes for YAML study configuration loading, parsing, and DTO conversion."""
+"""API routes for YAML study configuration loading, parsing, DTO conversion, and validation."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from fbf.ui.orchestration.study_service import (
     PathForbiddenError,
     StudyConfigDTO,
     StudyService,
+    ValidationResultDTO,
 )
 
 router = APIRouter(prefix="/study", tags=["study"])
@@ -120,3 +121,12 @@ def _parse_text_internal(raw_text: str) -> StudyConfigDTO:
         raise _http_error(status.HTTP_400_BAD_REQUEST, code, msg) from None
     except Exception as err:
         raise _http_error(status.HTTP_400_BAD_REQUEST, "INVALID_YAML", str(err)) from None
+
+
+@router.post("/validate-form", response_model=ValidationResultDTO)
+def validate_form_study_config(payload: StudyConfigDTO) -> ValidationResultDTO:
+    """Validate StudyConfigDTO form data using Core validation."""
+    try:
+        return _service.validate_config_dto(payload)
+    except Exception as err:
+        return ValidationResultDTO(is_valid=False, errors=[str(err)])

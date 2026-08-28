@@ -42,6 +42,15 @@ def study_view(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "study.html", context)
 
 
+@presentation_router.get("/study/edit", response_class=HTMLResponse)
+def study_edit_view(request: Request) -> HTMLResponse:
+    """Render structured configuration editor page."""
+    context = _common_context(
+        request, page_title="Edit Study Configuration", active_section="study"
+    )
+    return templates.TemplateResponse(request, "study/edit.html", context)
+
+
 @presentation_router.get("/run", response_class=HTMLResponse)
 def run_view(request: Request) -> HTMLResponse:
     """Render simulation run page."""

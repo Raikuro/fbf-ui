@@ -1,0 +1,612 @@
+"""Structured configuration editor template files."""
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Edit Study Configuration</h1>
+    <p class="page-description">Use forms to edit study parameters and see validation results in real-time</p>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Configuration Editor</h2>
+    <p class="page-description">Use the form below to edit study configuration. Fields are validated against Core rules in real-time.</p>
+
+    <div id="editor-container">
+        <div id="editor-form">
+            <form id="study-form" onsubmit="submitForm(event)">
+                <!-- Name Field -->
+                <div class="form-group">
+                    <label for="study-name">Study Name</label>
+                    <input type="text" id="study-name" name="name" placeholder="Unnamed Study" maxlength="100" required>
+                    <div class="error-message" id="name-error"></div>
+                </div>
+
+                <!-- Description Field -->
+                <div class="form-group">
+                    <label for="study-description">Description</label>
+                    <textarea id="study-description" name="description" placeholder="Enter study description" rows="2"></textarea>
+                    <div class="error-message" id="description-error"></div>
+                </div>
+
+                <!-- Version Field -->
+                <div class="form-group">
+                    <label for="study-version">Version</label>
+                    <input type="text" id="study-version" name="version" placeholder="e.g., 1.0" maxlength="20">
+                    <div class="error-message" id="version-error"></div>
+                </div>
+
+                <!-- Dataset Identifier Field -->
+                <div class="form-group">
+                    <label for="study-dataset">Dataset Identifier</label>
+                    <input type="text" id="study-dataset" name="dataset_identifier" placeholder="e.g., sp500_historical" required>
+                    <div class="error-message" id="dataset-error"></div>
+                </div>
+
+                <!-- Allocation Policy Type Field -->
+                <div class="form-group">
+                    <label for="allocation-type">Allocation Policy Type</label>
+                    <select id="allocation-type" name="allocation_policy_type" required>
+                                <option value="">Select allocation policy type...</option>
+                                <option value="ConstantAllocationPolicy">CONSTANT</option>
+                                <option value="ConstantAllocationPolicy">MIN_MAX</option>
+                                <option value="ConstantAllocationPolicy">USER_DEFINED</option>
+                                <option value="ConstantAllocationPolicy">FIXED_REAL</option>
+                    </select>
+                    <div class="error-message" id="allocation-type-error"></div>
+                </div>
+
+                <!-- Allocation Policy Values Field -->
+                <div class="form-group">
+                    <label for="allocation-values">Allocation Values</label>
+                    <div class="array-input-container">
+                        <div id="allocation-values-array"></div>
+                        <button type="button" onclick="addArrayField('allocation-values')">+ Add Value</button>
+                    </div>
+                    <div class="error-message" id="allocation-values-error"></div>
+                </div>
+
+                <!-- Withdrawal Policy Type Field -->
+                <div class="form-group">
+                    <label for="withdrawal-type">Withdrawal Policy Type</label>
+                    <select id="withdrawal-type" name="withdrawal_policy_type" required>
+                                <option value="">Select withdrawal policy type...</option>
+                                <option value="FixedRealWithdrawalPolicy">FIXED_REAL</option>
+                                <option value="ConstantWithdrawalPolicy">CONSTANT</option>
+                    </select>
+                    <div class="error-message" id="withdrawal-type-error"></div>
+                </div>
+
+                <!-- Withdrawal Policy Values Field -->
+                <div class="form-group">
+                    <label for="withdrawal-values">Withdrawal Values</label>
+                    <div class="array-input-container">
+                        <div id="withdrawal-values-array"></div>
+                        <button type="button" onclick="addArrayField('withdrawal-values')">+ Add Value</button>
+                    </div>
+                    <div class="error-message" id="withdrawal-values-error"></div>
+                </div>
+
+                <!-- Horizon Years Field -->
+                <div class="form-group">
+                    <label for="horizon-years">Horizon Years</label>
+                    <div class="array-input-container">
+                        <div id="horizon-years-array"></div>
+                        <button type="button" onclick="addArrayField('horizon-years')">+ Add Year</button>
+                    </div>
+                    <div class="error-message" id="horizon-years-error"></div>
+                </div>
+
+                <!-- Final Value Target Values Field -->
+                <div class="form-group">
+                    <label for="final-target-values">Final Target Values (Optional)</label>
+                    <div class="array-input-container">
+                        <div id="final-target-values-array"></div>
+                        <button type="button" onclick="addArrayField('final-target-values')">+ Add Target</button>
+                    </div>
+                    <div class="error-message" id="final-target-values-error"></div>
+                </div>
+
+                <!-- Form Actions -->
+                <div class="form-actions">
+                    <button type="submit">Validate Configuration</button>
+                    <button type="button" onclick="resetForm()">Reset Form</button>
+                    <button type="button" onclick="loadFromFile()">Load from File</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="validation-results" style="display: none;">
+            <h3>Validation Results</h3>
+            <div id="validation-status"></div>
+            <div id="validation-errors"></div>
+            <div id="validation-success" style="display: none;">
+                <p>✓ Configuration is valid!</p>
+                <p>Unit count: <span id="unit-count"></span></p>
+                <button onclick="exportYaml()">Export as YAML</button>
+            </div>
+        </div>
+
+        <div id="yaml-preview" style="display: none;">
+            <h3>YAML Preview</h3>
+            <pre id="yaml-content"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentFormData = null;
+    let validationTimeout = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeArrayFields();
+        setupRealTimeValidation();
+    });
+
+    function initializeArrayFields() {
+        setupArrayField('allocation-values');
+        setupArrayField('withdrawal-values');
+        setupArrayField('horizon-years');
+        setupArrayField('final-target-values');
+    }
+
+    function setupArrayField(fieldId) {
+        const container = document.getElementById(`${fieldId}-array`);
+        const errorDiv = document.getElementById(`${fieldId}-error`);
+
+        function updateArray() {
+            const inputs = Array.from(container.querySelectorAll('input[type="number"], input[type="text"]'));
+            const values = inputs.map(input => {
+                if (input.type === 'number') {
+                    return parseFloat(input.value) || null;
+                }
+                return input.value;
+            }).filter(v => v !== null && v !== '');
+
+            errorDiv.textContent = '';
+            errorDiv.style.display = 'none';
+
+            if (values.length > 0) {
+                const formData = new FormData(document.getElementById('study-form'));
+                currentFormData = Object.fromEntries(formData.entries());
+                currentFormData[fieldId] = values;
+                validateFormDebounced();
+            }
+        }
+
+        container.addEventListener('input', updateArray);
+        container.addEventListener('change', updateArray);
+
+        const testValue = fieldId === 'horizon-years' ? 30 : 0.6;
+        addArrayItem(container, testValue);
+    }
+
+    function addArrayItem(container, initialValue) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'array-item';
+
+        let inputType = 'number';
+        if (container.id.includes('years') || container.id.includes('target')) {
+            inputType = 'number';
+        } else {
+            inputType = 'number';
+        }
+
+        const input = document.createElement('input');
+        input.type = inputType;
+        input.value = initialValue;
+        input.placeholder = inputType === 'number' ? '0.0' : 'value';
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '×';
+        removeBtn.onclick = function() {
+            container.removeChild(wrapper);
+            updateArrayFromContainer(container);
+        };
+
+        wrapper.appendChild(input);
+        wrapper.appendChild(removeBtn);
+        container.appendChild(wrapper);
+    }
+
+    function addArrayField(fieldId) {
+        const container = document.getElementById(`${fieldId}-array`);
+        const errorDiv = document.getElementById(`${fieldId}-error`);
+        const testValue = fieldId === 'horizon-years' ? 30 : 0.6;
+        addArrayItem(container, testValue);
+        updateArrayFromContainer(container);
+    }
+
+    function updateArrayFromContainer(container) {
+        const inputs = Array.from(container.querySelectorAll('input'));
+        const values = inputs.map(input => {
+            if (input.type === 'number') {
+                return parseFloat(input.value) || null;
+            }
+            return input.value;
+        }).filter(v => v !== null && v !== '');
+
+        const formData = new FormData(document.getElementById('study-form'));
+        currentFormData = Object.fromEntries(formData.entries());
+        currentFormData[container.id.replace('-array', '')] = values;
+        validateFormDebounced();
+    }
+
+    function setupRealTimeValidation() {
+        const form = document.getElementById('study-form');
+        const inputs = form.querySelectorAll('input, select, textarea');
+
+        inputs.forEach(input => {
+            input.addEventListener('input', function() {
+                clearFieldError(input.name);
+                if (validationTimeout) clearTimeout(validationTimeout);
+                validationTimeout = setTimeout(validateFormDebounced, 500);
+            });
+
+            input.addEventListener('change', function() {
+                if (validationTimeout) clearTimeout(validationTimeout);
+                validationTimeout = setTimeout(validateFormDebounced, 500);
+            });
+        });
+    }
+
+    function validateFormDebounced() {
+        if (validationTimeout) clearTimeout(validationTimeout);
+        validationTimeout = setTimeout(validateForm, 500);
+    }
+
+    function validateForm() {
+        if (!currentFormData) {
+            return;
+        }
+
+        const formData = new FormData(document.getElementById('study-form'));
+        currentFormData = Object.fromEntries(formData.entries());
+
+        const studyConfigDTO = {
+            name: currentFormData.name || "Unnamed Study",
+            description: currentFormData.description || "",
+            version: currentFormData.version || "",
+            dataset_identifier: currentFormData.dataset_identifier || "",
+            allocation_policy_type: currentFormData.allocation_policy_type || "",
+            allocation_policy_values: currentFormData.allocation_values || [],
+            withdrawal_policy_type: currentFormData.withdrawal_policy_type || "",
+            withdrawal_policy_values: currentFormData.withdrawal_values || [],
+            horizon_years: currentFormData.horizon_years || [],
+            final_value_target_values: currentFormData['final-target-values'] || null,
+        };
+
+        fetch('/api/v1/study/validate-form', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(studyConfigDTO),
+        })
+        .then(response => response.json())
+        .then(data => {
+            updateValidationResults(data);
+        })
+        .catch(error => {
+            console.error('Validation error:', error);
+            showValidationError('Validation request failed.');
+        });
+    }
+
+    function updateValidationResults(data) {
+        const statusDiv = document.getElementById('validation-status');
+        const errorsDiv = document.getElementById('validation-errors');
+        const successDiv = document.getElementById('validation-success');
+        const unitCountSpan = document.getElementById('unit-count');
+
+        if (data.is_valid) {
+            statusDiv.innerHTML = '<span style="color: green;">✓ Valid Configuration</span>';
+            errorsDiv.style.display = 'none';
+            successDiv.style.display = 'block';
+            unitCountSpan.textContent = data.unit_count;
+        } else {
+            statusDiv.innerHTML = '<span style="color: red;">✗ Invalid Configuration</span>';
+            successDiv.style.display = 'none';
+
+            if (data.errors && data.errors.length > 0) {
+                errorsDiv.innerHTML = '<h4>Errors:</h4><ul>' +
+                    data.errors.map(error => `<li>${error}</li>`).join('') +
+                    '</ul>';
+                errorsDiv.style.display = 'block';
+            } else {
+                errorsDiv.style.display = 'none';
+            }
+        }
+    }
+
+    function showValidationError(message) {
+        const errorsDiv = document.getElementById('validation-errors');
+        errorsDiv.innerHTML = '<h4>Error:</h4><p>' + message + '</p>';
+        errorsDiv.style.display = 'block';
+    }
+
+    function clearFieldError(fieldName) {
+        const errorDiv = document.getElementById(fieldName + '-error');
+        if (errorDiv) {
+            errorDiv.textContent = '';
+            errorDiv.style.display = 'none';
+        }
+    }
+
+    function submitForm(event) {
+        event.preventDefault();
+        validateForm();
+    }
+
+    function resetForm() {
+        document.getElementById('study-form').reset();
+        initializeArrayFields();
+        document.getElementById('validation-results').style.display = 'none';
+        document.getElementById('yaml-preview').style.display = 'none';
+        currentFormData = null;
+    }
+
+    function loadFromFile() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.yaml,.yml';
+        input.onchange = function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const yamlContent = e.target.result;
+                    fetch('/api/v1/study/parse-text', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ yaml_content: yamlContent }),
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        populateForm(data);
+                    })
+                    .catch(error => {
+                        console.error('Error loading file:', error);
+                        alert('Error loading YAML file');
+                    });
+                };
+                reader.readAsText(file);
+            }
+        };
+        input.click();
+    }
+
+    function populateForm(configDTO) {
+        document.getElementById('study-name').value = configDTO.name;
+        document.getElementById('study-description').value = configDTO.description;
+        document.getElementById('study-version').value = configDTO.version;
+        document.getElementById('study-dataset').value = configDTO.dataset_identifier;
+        document.getElementById('allocation-type').value = configDTO.allocation_policy_type;
+        document.getElementById('withdrawal-type').value = configDTO.withdrawal_policy_type;
+
+        document.getElementById('allocation-values-array').innerHTML = '';
+        document.getElementById('withdrawal-values-array').innerHTML = '';
+        document.getElementById('horizon-years-array').innerHTML = '';
+        document.getElementById('final-target-values-array').innerHTML = '';
+
+        if (configDTO.allocation_policy_values && configDTO.allocation_policy_values.length > 0) {
+            configDTO.allocation_policy_values.forEach(value => {
+                addArrayItem(document.getElementById('allocation-values-array'), value);
+            });
+        } else {
+            addArrayItem(document.getElementById('allocation-values-array'), 0.6);
+        }
+
+        if (configDTO.withdrawal_policy_values && configDTO.withdrawal_policy_values.length > 0) {
+            configDTO.withdrawal_policy_values.forEach(value => {
+                addArrayItem(document.getElementById('withdrawal-values-array'), value);
+            });
+        } else {
+            addArrayItem(document.getElementById('withdrawal-values-array'), 0.04);
+        }
+
+        if (configDTO.horizon_years && configDTO.horizon_years.length > 0) {
+            configDTO.horizon_years.forEach(year => {
+                addArrayItem(document.getElementById('horizon-years-array'), year);
+            });
+        } else {
+            addArrayItem(document.getElementById('horizon-years-array'), 30);
+        }
+
+        if (configDTO.final_value_target_values) {
+            configDTO.final_value_target_values.forEach(value => {
+                addArrayItem(document.getElementById('final-target-values-array'), value);
+            });
+        }
+
+        updateArrayFromContainer(document.getElementById('allocation-values-array'));
+        updateArrayFromContainer(document.getElementById('withdrawal-values-array'));
+        updateArrayFromContainer(document.getElementById('horizon-years-array'));
+        updateArrayFromContainer(document.getElementById('final-target-values-array'));
+
+        validateForm();
+    }
+
+    function exportYaml() {
+        if (!currentFormData) {
+            alert('Please validate a configuration first');
+            return;
+        }
+
+        const studyConfigDTO = {
+            name: currentFormData.name || "Unnamed Study",
+            description: currentFormData.description || "",
+            version: currentFormData.version || "",
+            dataset_identifier: currentFormData.dataset_identifier || "",
+            allocation_policy_type: currentFormData.allocation_policy_type || "",
+            allocation_policy_values: currentFormData.allocation_values || [],
+            withdrawal_policy_type: currentFormData.withdrawal_policy_type || "",
+            withdrawal_policy_values: currentFormData.withdrawal_values || [],
+            horizon_years: currentFormData.horizon_years || [],
+            final_value_target_values: currentFormData['final-target-values'] || null,
+        };
+
+        fetch('/api/v1/study/validate-form', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(studyConfigDTO),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.is_valid) {
+                fetch('/api/v1/study/validate-form', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(studyConfigDTO),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const yaml = generateYamlFromDTO(data);
+                    document.getElementById('yaml-content').textContent = yaml;
+                    document.getElementById('yaml-preview').style.display = 'block';
+                });
+            } else {
+                alert('Cannot export invalid configuration');
+            }
+        })
+        .catch(error => {
+            console.error('Error exporting YAML:', error);
+            alert('Error exporting YAML');
+        });
+    }
+
+    function generateYamlFromDTO(configDTO) {
+        let yaml = 'metadata:\n';
+        yaml += `  name: ${configDTO.name}\n`;
+        if (configDTO.description) yaml += `  description: ${configDTO.description}\n`;
+        if (configDTO.version) yaml += `  version: ${configDTO.version}\n`;
+        yaml += 'dataset:\n';
+        yaml += `  identifier: ${configDTO.dataset_identifier}\n`;
+        yaml += 'allocation_policy:\n';
+        yaml += `  type: ${configDTO.allocation_policy_type}\n`;
+        yaml += '  equity_allocation:\n';
+        configDTO.allocation_policy_values.forEach(val => {
+            yaml += `    - ${val}\n`;
+        });
+        yaml += 'withdrawal_policy:\n';
+        yaml += `  type: ${configDTO.withdrawal_policy_type}\n`;
+        yaml += '  withdrawal_rate:\n';
+        configDTO.withdrawal_policy_values.forEach(val => {
+            yaml += `    - ${val}\n`;
+        });
+        yaml += 'cohorts:\n';
+        yaml += '  horizon_years:\n';
+        configDTO.horizon_years.forEach(year => {
+            yaml += `    - ${year}\n`;
+        });
+        if (configDTO.final_value_target_values) {
+            yaml += 'final_value_target_values:\n';
+            configDTO.final_value_target_values.forEach(val => {
+                yaml += `  - ${val}\n`;
+            });
+        }
+        return yaml;
+    }
+</script>
+
+<style>
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.array-input-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.array-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.array-item input {
+    flex: 1;
+}
+
+.array-item button {
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.form-actions button {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.form-actions button[type="submit"] {
+    background: #007bff;
+    color: white;
+}
+
+.form-actions button[type="button"] {
+    background: #6c757d;
+    color: white;
+}
+
+.error-message {
+    color: #dc3545;
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+    display: none;
+}
+
+label {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+</style>
+</div>
+</div>
+
+<div class="card" style="margin-top: 2rem;">
+    <h2 class="card-title">Configuration Details</h2>
+    <p class="page-description">Use the form above to edit study configuration. Fields are validated against Core rules in real-time.</p>
+    <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 0.5rem;">
+        <h3>Validation Benefits:</h3>
+        <ul>
+            <li>Real-time validation against Core business rules</li>
+            <li>Policy type validation (CONSTANT, MIN_MAX, USER_DEFINED)</li>
+            <li>Numeric range validation for allocation/withdrawal rates</li>
+            <li>Required field validation</li>
+            <li>Unit count preview for configuration space</li>
+            <li>YAML export with validated structure</li>
+        </ul>
+
+        <h3 style="margin-top: 1.5rem;">Supported Policy Types:</h3>
+        <ul>
+            <li><strong>CONSTANT:</strong> Single fixed value for allocation/withdrawal</li>
+            <li><strong>MIN_MAX:</strong> Range between min and max values</li>
+            <li><strong>USER_DEFINED:</strong> Custom array of values</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
