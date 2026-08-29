@@ -38,6 +38,36 @@ class ValidationResultDTO(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class ParameterAxisDTO(BaseModel):
+    """DTO representing a single parameter axis in the study plan."""
+
+    name: str
+    values: list[float]
+
+
+class StudyPlanPreviewDTO(BaseModel):
+    """DTO providing a detailed preview of the study plan workload."""
+
+    study_name: str
+    description: str
+    version: str
+    dataset_identifier: str
+    allocation_policy_type: str
+    allocation_values: list[float]
+    withdrawal_policy_type: str
+    withdrawal_values: list[float]
+    horizon_years: list[int]
+    final_value_target_values: list[float] | None = None
+    num_cohorts: int
+    num_parameter_configs: int
+    total_simulation_units: int
+    cohort_date_start: str
+    cohort_date_end: str
+    parameter_axes: list[ParameterAxisDTO]
+    experiment_horizon_months: int
+    initial_wealth: str
+
+
 def study_configuration_to_dto(config: StudyConfiguration) -> StudyConfigDTO:
     """Convert canonical fbf-core StudyConfiguration into StudyConfigDTO."""
     targets = (
@@ -176,3 +206,55 @@ class StudyService:
         """Validate StudyConfigDTO fields using Core validation."""
         canonical = self.config_dto_to_canonical_dict(config_dto)
         return self.validate_configuration(canonical, data_dir)
+
+    def preview_study_plan(
+        self, config_dto: StudyConfigDTO, data_dir: str | None = None
+    ) -> StudyPlanPreviewDTO:
+        """Build study plan and return detailed preview information."""
+        canonical = self.config_dto_to_canonical_dict(config_dto)
+        config = StudyConfiguration.from_yaml(canonical)
+        initial_wealth = Money(Decimal("1000000.00"), Currency.EUR)
+        built_study = build_study_plan(config, data_dir=data_dir, initial_wealth=initial_wealth)
+
+        parameter_axes = [
+            ParameterAxisDTO(
+                name="equity_allocation",
+                values=[float(v) for v in config.allocation_policy_values],
+            ),
+            ParameterAxisDTO(
+                name="withdrawal_rate",
+                values=[float(v) for v in config.withdrawal_policy_values],
+            ),
+            ParameterAxisDTO(
+                name="horizon_years",
+                values=[float(v) for v in config.horizon_years],
+            ),
+        ]
+        if config.final_value_target_values is not None:
+            parameter_axes.append(
+                ParameterAxisDTO(
+                    name="final_value_target",
+                    values=[float(v) for v in config.final_value_target_values],
+                )
+            )
+
+        return StudyPlanPreviewDTO(
+            study_name=built_study.experiment_definition.name,
+            description=built_study.experiment_definition.description,
+            version=config_dto.version,
+            dataset_identifier=config_dto.dataset_identifier,
+            allocation_policy_type=config_dto.allocation_policy_type,
+            allocation_values=config_dto.allocation_policy_values,
+            withdrawal_policy_type=config_dto.withdrawal_policy_type,
+            withdrawal_values=config_dto.withdrawal_policy_values,
+            horizon_years=config_dto.horizon_years,
+            final_value_target_values=config_dto.final_value_target_values,
+            num_cohorts=len(built_study.cohorts),
+            num_parameter_configs=len(built_study.param_configs),
+            total_simulation_units=len(built_study.plan.units),
+            cohort_date_start=built_study.cohorts[0].start_date.isoformat(),
+            cohort_date_end=built_study.cohorts[-1].start_date.isoformat(),
+            parameter_axes=parameter_axes,
+            experiment_horizon_months=built_study.experiment_definition.horizon_months,
+            initial_wealth=str(built_study.experiment_definition.initial_wealth.amount),
+        )

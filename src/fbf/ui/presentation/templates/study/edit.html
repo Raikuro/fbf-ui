@@ -110,6 +110,7 @@
                 <!-- Form Actions -->
                 <div class="form-actions">
                     <button type="submit">Validate Configuration</button>
+                    <button type="button" id="preview-btn" onclick="previewStudyPlan()" disabled>Preview Study Plan</button>
                     <button type="button" onclick="resetForm()">Reset Form</button>
                     <button type="button" onclick="loadFromFile()">Load from File</button>
                 </div>
@@ -130,6 +131,11 @@
         <div id="yaml-preview" style="display: none;">
             <h3>YAML Preview</h3>
             <pre id="yaml-content"></pre>
+        </div>
+
+        <div id="study-plan-preview" style="display: none;">
+            <h3>Study Plan Preview</h3>
+            <div id="preview-content"></div>
         </div>
     </div>
 </div>
@@ -298,15 +304,18 @@
         const errorsDiv = document.getElementById('validation-errors');
         const successDiv = document.getElementById('validation-success');
         const unitCountSpan = document.getElementById('unit-count');
+        const previewBtn = document.getElementById('preview-btn');
 
         if (data.is_valid) {
             statusDiv.innerHTML = '<span style="color: green;">✓ Valid Configuration</span>';
             errorsDiv.style.display = 'none';
             successDiv.style.display = 'block';
             unitCountSpan.textContent = data.unit_count;
+            previewBtn.disabled = false;
         } else {
             statusDiv.innerHTML = '<span style="color: red;">✗ Invalid Configuration</span>';
             successDiv.style.display = 'none';
+            previewBtn.disabled = true;
 
             if (data.errors && data.errors.length > 0) {
                 errorsDiv.innerHTML = '<h4>Errors:</h4><ul>' +
@@ -343,6 +352,8 @@
         initializeArrayFields();
         document.getElementById('validation-results').style.display = 'none';
         document.getElementById('yaml-preview').style.display = 'none';
+        document.getElementById('study-plan-preview').style.display = 'none';
+        document.getElementById('preview-btn').disabled = true;
         currentFormData = null;
     }
 
@@ -481,6 +492,124 @@
         });
     }
 
+    function previewStudyPlan() {
+        if (!currentFormData) {
+            alert('Please validate a configuration first');
+            return;
+        }
+
+        const studyConfigDTO = {
+            name: currentFormData.name || "Unnamed Study",
+            description: currentFormData.description || "",
+            version: currentFormData.version || "",
+            dataset_identifier: currentFormData.dataset_identifier || "",
+            allocation_policy_type: currentFormData.allocation_policy_type || "",
+            allocation_policy_values: currentFormData.allocation_values || [],
+            withdrawal_policy_type: currentFormData.withdrawal_policy_type || "",
+            withdrawal_policy_values: currentFormData.withdrawal_values || [],
+            horizon_years: currentFormData.horizon_years || [],
+            final_value_target_values: currentFormData['final-target-values'] || null,
+        };
+
+        const previewBtn = document.getElementById('preview-btn');
+        previewBtn.disabled = true;
+        previewBtn.textContent = 'Loading Preview...';
+
+        fetch('/api/v1/study/preview', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(studyConfigDTO),
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.detail?.message || 'Preview failed');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            renderPreview(data);
+            document.getElementById('study-plan-preview').style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Preview error:', error);
+            alert('Error generating preview: ' + error.message);
+        })
+        .finally(() => {
+            previewBtn.disabled = false;
+            previewBtn.textContent = 'Preview Study Plan';
+        });
+    }
+
+    function renderPreview(data) {
+        const content = document.getElementById('preview-content');
+        content.innerHTML = `
+            <div class="preview-grid">
+                <div class="preview-section">
+                    <h4>Study Metadata</h4>
+                    <table class="preview-table">
+                        <tr><td>Name</td><td>${escapeHtml(data.study_name)}</td></tr>
+                        <tr><td>Description</td><td>${escapeHtml(data.description || '-')}</td></tr>
+                        <tr><td>Version</td><td>${escapeHtml(data.version || '-')}</td></tr>
+                        <tr><td>Dataset</td><td>${escapeHtml(data.dataset_identifier)}</td></tr>
+                        <tr><td>Initial Wealth</td><td>${data.initial_wealth} EUR</td></tr>
+                    </table>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Workload Summary</h4>
+                    <table class="preview-table">
+                        <tr><td>Cohorts</td><td>${data.num_cohorts}</td></tr>
+                        <tr><td>Parameter Configs</td><td>${data.num_parameter_configs}</td></tr>
+                        <tr><td>Total Simulation Units</td><td><strong>${data.total_simulation_units}</strong></td></tr>
+                        <tr><td>Experiment Horizon</td><td>${data.experiment_horizon_months} months</td></tr>
+                    </table>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Cohort Date Range</h4>
+                    <table class="preview-table">
+                        <tr><td>Start Date</td><td>${data.cohort_date_start}</td></tr>
+                        <tr><td>End Date</td><td>${data.cohort_date_end}</td></tr>
+                    </table>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Configuration</h4>
+                    <table class="preview-table">
+                        <tr><td>Allocation Policy</td><td>${escapeHtml(data.allocation_policy_type)}</td></tr>
+                        <tr><td>Allocation Values</td><td>${data.allocation_values.join(', ')}</td></tr>
+                        <tr><td>Withdrawal Policy</td><td>${escapeHtml(data.withdrawal_policy_type)}</td></tr>
+                        <tr><td>Withdrawal Values</td><td>${data.withdrawal_values.join(', ')}</td></tr>
+                        <tr><td>Horizon Years</td><td>${data.horizon_years.join(', ')}</td></tr>
+                        ${data.final_value_target_values ? `<tr><td>Final Target Values</td><td>${data.final_value_target_values.join(', ')}</td></tr>` : ''}
+                    </table>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Parameter Axes</h4>
+                    <table class="preview-table">
+                        ${data.parameter_axes.map(axis => `
+                            <tr>
+                                <td>${escapeHtml(axis.name)}</td>
+                                <td>${axis.values.join(', ')}</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     function generateYamlFromDTO(configDTO) {
         let yaml = 'metadata:\n';
         yaml += `  name: ${configDTO.name}\n`;
@@ -571,6 +700,12 @@
     color: white;
 }
 
+.form-actions button:disabled {
+    background: #495057;
+    color: #adb5bd;
+    cursor: not-allowed;
+}
+
 .error-message {
     color: #dc3545;
     font-size: 0.9rem;
@@ -582,6 +717,52 @@ label {
     font-weight: 600;
     display: block;
     margin-bottom: 0.5rem;
+}
+
+.preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+.preview-section {
+    background: var(--bg-secondary);
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.preview-section h4 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.preview-table td {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.preview-table td:first-child {
+    font-weight: 600;
+    width: 40%;
+}
+
+#study-plan-preview {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: var(--bg-primary);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+#study-plan-preview h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
 }
 </style>
 </div>

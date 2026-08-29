@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from fbf.ui.orchestration.study_service import (
     PathForbiddenError,
     StudyConfigDTO,
+    StudyPlanPreviewDTO,
     StudyService,
     ValidationResultDTO,
 )
@@ -130,3 +131,16 @@ def validate_form_study_config(payload: StudyConfigDTO) -> ValidationResultDTO:
         return _service.validate_config_dto(payload)
     except Exception as err:
         return ValidationResultDTO(is_valid=False, errors=[str(err)])
+
+
+@router.post("/preview", response_model=StudyPlanPreviewDTO)
+def preview_study_plan(payload: StudyConfigDTO) -> StudyPlanPreviewDTO:
+    """Build and return a detailed study plan preview from StudyConfigDTO."""
+    try:
+        return _service.preview_study_plan(payload)
+    except Exception as err:
+        raise _http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "PLAN_BUILD_FAILED",
+            str(err),
+        ) from None

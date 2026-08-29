@@ -5,8 +5,8 @@
 | Property | Status |
 |----------|--------|
 | Package Version | `0.1.0` |
-| Active Phase | `P3 — YAML Import & File Workflows` |
-| Phase State | `PHASE P3 READY FOR COMMIT — AWAITING AUTHORIZATION` |
+| Active Phase | `P6 — Study Plan Dry Run & Preview` |
+| Phase State | `PHASE P6 READY FOR COMMIT — AWAITING AUTHORIZATION` |
 | Core Dependency | `fbf-core 0.1.0` (editable sibling dependency) |
 | Dedicated Venv | `/mnt/datos/workspace/fbf/fbf-ui/.venv` |
 | Quality Gates | All passing (`ruff`, `mypy --strict`, `pytest`, boundary contracts) |
@@ -18,24 +18,37 @@
 - [x] **P0 — Repository Architecture & Investigation**: Evaluated stack options, established dependency strategy, defined layer boundaries, produced capability matrix and visualization catalog.
 - [x] **P1 — Project Bootstrap & Tooling** (Frozen at commit `5009989`): Created `fbf-ui` package, set up setuptools configuration, dedicated `.venv`, FastAPI app shell, health endpoint reporting installed `fbf-core` version, contract tests, and documentation.
 - [x] **P2 — Application Shell & UI Presentation Foundation** (Frozen at commit `5d7cd2c`): Built Jinja2 presentation templates (`base.html`, `dashboard.html`, `study.html`, `run.html`, `results.html`, `compare.html`, `persistence.html`), static dark theme CSS (`/static/css/app.css`), package-relative path resolution, active tab navbar highlighting, template unit tests, and scaffolding placeholders.
+- [x] **P3 — YAML Import & File Workflows** (Frozen at commit `55910c9`): REST API endpoints for YAML upload, parse-path, parse-text; `StudyConfigDTO`; workspace path security boundary; HTTP contract tests; ADR 003 updated.
+- [x] **P4 — Configuration Validation & DTO Mapping** (Frozen at commit `55910c9`): REST API `/api/v1/study/validate` endpoint; validation error mapping and structured configuration DTO adapter.
+- [x] **P5 — Structured Configuration Editor UI** (Frozen at commit `55910c9`): Form-based parameter editor with live validation feedback; two-way synchronization between structured UI fields and canonical YAML.
 
 ---
 
-## Active Phase: P3 — YAML Import & File Workflows
+## Active Phase: P6 — Study Plan Dry Run & Preview
 
 ### Status
 Implementation and quality gate validation are **complete**. Working tree is ready for final pre-commit verification.
-Awaiting explicit user authorization before creating the single atomic commit for Phase P3.
+Awaiting explicit user authorization before creating the single atomic commit for Phase P6.
 
-### Implemented in P3
-- `src/fbf/ui/api/study.py` — `POST /api/v1/study/upload`, `POST /api/v1/study/parse-path`, `POST /api/v1/study/parse-text` endpoints.
-- `src/fbf/ui/orchestration/study_service.py` — `StudyConfigDTO`, `StudyService.parse_yaml_text()`, `StudyService.parse_server_file()`, `StudyService.resolve_permitted_path()`, workspace path security boundary.
-- `src/fbf/ui/api/router.py` — Includes `study_router` under `/api/v1`.
-- `src/fbf/ui/presentation/templates/study.html` — File upload, server path, raw text, and display sections.
-- `tests/unit/test_study_api.py` — 11 HTTP contract tests covering all success and failure paths.
-- `tests/contract/test_ui_boundaries.py` — New `test_api_does_not_access_sqlite` contract test (6 total).
-- `pyproject.toml` — Added `python-multipart>=0.0.9` runtime dependency.
-- `ARCHITECTURE.md`, `docs/DECISIONS.md` — ADR 003 updated with workspace path security boundary.
+### Implemented in P6
+- `src/fbf/ui/orchestration/study_service.py` — `StudyPlanPreviewDTO`, `ParameterAxisDTO`, `StudyService.preview_study_plan()` method.
+- `src/fbf/ui/api/study.py` — `POST /api/v1/study/preview` endpoint returning detailed study plan preview.
+- `src/fbf/ui/presentation/templates/study/edit.html` — Preview button and panel integrated into the structured editor.
+- `tests/unit/test_study_service.py` — Tests for preview DTO, service method, and field validation.
+- `tests/unit/test_study_preview_api.py` — HTTP contract tests for preview endpoint (6 tests).
+
+### Core APIs Consumed
+- `build_study_plan()` — Returns `BuiltStudy` with plan, experiment definition, cohorts, and parameter configurations.
+- `StudyConfiguration.from_yaml()` — Parses canonical configuration dict.
+- `Money` — Initial wealth representation.
+- `CohortSpecification.start_date` — Cohort date range extraction.
+- `ParameterConfiguration.values` — Parameter axis values extraction.
+
+### Core Modification Status
+**No Core modifications were required.** All preview data is extracted from the existing public Core API.
+
+### CLI Status
+**CLI was untouched.** P6 is a UI-only feature.
 
 ---
 
@@ -51,6 +64,6 @@ Awaiting explicit user authorization before creating the single atomic commit fo
 
 ## Next Steps
 
-1. Await explicit user commit authorization for Phase P3.
-2. After P3 commit, update this file to reflect `COMPLETE`.
-3. Request planning approval for **P4 — Execution State Engine**.
+1. Await explicit user commit authorization for Phase P6.
+2. After P6 commit, update this file to reflect `COMPLETE`.
+3. Request planning approval for **P7 — Non-Persistent Simulation Execution & Progress Engine**.
