@@ -43,9 +43,11 @@ This document outlines the phased development roadmap for `fbf-ui`. Each phase i
 - Async background simulation runner calling `execute_study_plan`.
 - Real-time progress polling endpoint.
 
-### P8 — SQLite Database Browser
-- Persistence adapter integration via `fbf.core.persistence`.
-- Database file selector & experiment list view (`/persistence/experiments`).
+### P8 — SQLite Database Browser (COMPLETE)
+- Read-only browser for persisted experiments, plans, and execution metadata.
+- Core repository methods: `list_experiments_with_plans()`, `list_plans_for_experiment()`, `get_experiment_metadata()`, `get_execution_result_metadata()`.
+- API endpoints: `/api/v1/persistence/experiments`, `/api/v1/persistence/experiments/{id}`, `/api/v1/persistence/experiments/{id}/plans`, `/api/v1/persistence/plans/{id}/results`.
+- Presentation: Experiment list browser and experiment detail page.
 
 ### P9 — Persistent Simulation Logging
 - Simulation runner executing studies directly into local SQLite database files.

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <nav class="breadcrumb">
+        <a href="/persistence">Experiments</a>
+        <span class="separator">/</span>
+        <span class="current">Experiment Detail</span>
+    </nav>
+    <h1 class="page-title" id="experiment-name">Loading...</h1>
+</div>
+
+<div class="card" id="metadata-card" style="display:none;">
+    <h2 class="card-title">Metadata</h2>
+    <div class="detail-grid" id="metadata-content"></div>
+</div>
+
+<div class="card" id="plans-card" style="display:none;">
+    <h2 class="card-title">Plans</h2>
+    <div id="plans-container"></div>
+</div>
+
+<script>
+const experimentId = '{{ experiment_id }}';
+
+async function loadExperiment() {
+    try {
+        const response = await fetch('/api/v1/persistence/experiments/' + experimentId);
+        if (!response.ok) {
+            document.getElementById('experiment-name').textContent = 'Experiment Not Found';
+            return;
+        }
+
+        const exp = await response.json();
+        document.getElementById('experiment-name').textContent = exp.name + ' (' + exp.revision + ')';
+
+        // Metadata
+        const metaCard = document.getElementById('metadata-card');
+        const metaContent = document.getElementById('metadata-content');
+        metaCard.style.display = 'block';
+        metaContent.innerHTML = buildMetadataGrid(exp);
+
+        // Plans
+        const plansCard = document.getElementById('plans-card');
+        const plansContainer = document.getElementById('plans-container');
+        plansCard.style.display = 'block';
+
+        if (exp.plans.length === 0) {
+            plansContainer.innerHTML = '<p class="text-muted">No plans recorded for this experiment.</p>';
+        } else {
+            plansContainer.innerHTML = buildPlansTable(exp.plans);
+        }
+    } catch (error) {
+        document.getElementById('experiment-name').textContent = 'Error Loading Experiment';
+    }
+}
+
+function buildMetadataGrid(exp) {
+    const fields = [
+        ['Experiment ID', exp.experiment_id],
+        ['Description', exp.description || '-'],
+        ['Dataset', exp.dataset_identifier],
+        ['Horizon (months)', exp.horizon_months],
+        ['Initial Wealth', exp.initial_wealth + ' ' + exp.initial_wealth_currency],
+        ['Created', exp.created_at ? exp.created_at.substring(0, 19).replace('T', ' ') : '-'],
+        ['Updated', exp.updated_at ? exp.updated_at.substring(0, 19).replace('T', ' ') : '-'],
+    ];
+
+    let html = '<dl class="metadata-list">';
+    for (const [label, value] of fields) {
+        html += '<dt>' + label + '</dt>';
+        html += '<dd>' + escapeHtml(String(value)) + '</dd>';
+    }
+    html += '</dl>';
+    return html;
+}
+
+function buildPlansTable(plans) {
+    let html = '<table class="data-table">';
+    html += '<thead><tr>';
+    html += '<th>Plan ID</th>';
+    html += '<th>Status</th>';
+    html += '<th>Units</th>';
+    html += '<th>Created</th>';
+    html += '<th>Results</th>';
+    html += '</tr></thead>';
+    html += '<tbody>';
+
+    for (const plan of plans) {
+        const statusClass = plan.status === 'completed' ? 'status-completed' :
+                           plan.status === 'failed' ? 'status-failed' :
+                           plan.status === 'executing' ? 'status-executing' : 'status-pending';
+        const createdDate = plan.created_at ? plan.created_at.substring(0, 10) : '-';
+        const resultsBadge = plan.has_results ?
+            '<span class="results-badge results-yes">Available</span>' :
+            '<span class="results-badge results-no">None</span>';
+
+        html += '<tr>';
+        html += '<td class="plan-id">' + escapeHtml(plan.plan_id.substring(0, 8)) + '...</td>';
+        html += '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(plan.status) + '</span></td>';
+        html += '<td>' + plan.unit_count + '</td>';
+        html += '<td>' + createdDate + '</td>';
+        html += '<td>' + resultsBadge + '</td>';
+        html += '</tr>';
+    }
+
+    html += '</tbody></table>';
+    return html;
+}
+
+function escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+loadExperiment();
+</script>
+
+<style>
+.breadcrumb {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+}
+.breadcrumb a {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+.breadcrumb a:hover {
+    text-decoration: underline;
+}
+.breadcrumb .separator {
+    margin: 0 0.4rem;
+    color: var(--text-muted);
+}
+.breadcrumb .current {
+    color: var(--text-muted);
+}
+.detail-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem 1.5rem;
+}
+.metadata-list dt {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.metadata-list dd {
+    color: var(--text-main);
+    margin-bottom: 0.5rem;
+}
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+}
+.data-table th,
+.data-table td {
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+.data-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.data-table tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+.plan-id {
+    font-family: monospace;
+    font-size: 0.85rem;
+}
+.status-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+.status-completed {
+    background-color: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+.status-failed {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+.status-executing {
+    background-color: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+}
+.status-pending {
+    background-color: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+}
+.results-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.8rem;
+}
+.results-yes {
+    background-color: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+.results-no {
+    background-color: rgba(148, 163, 184, 0.1);
+    color: #64748b;
+}
+.text-muted {
+    color: var(--text-muted);
+}
+</style>
+{% endblock %}

@@ -71,8 +71,18 @@ def test_persistence_route(client: TestClient) -> None:
     response = client.get("/persistence")
     assert response.status_code == 200
     html = response.text
-    assert "<title>SQLite Persistence — FIRE Backtesting Framework</title>" in html
+    assert "<title>SQLite Persistence Browser — FIRE Backtesting Framework</title>" in html
     assert 'href="/persistence" class="nav-link active"' in html
+
+
+def test_persistence_experiment_route(client: TestClient) -> None:
+    """Verify GET /persistence/experiments/{id} renders experiment detail page."""
+    response = client.get("/persistence/experiments/test-id-123")
+    assert response.status_code == 200
+    html = response.text
+    assert "<title>Experiment Detail — FIRE Backtesting Framework</title>" in html
+    assert 'href="/persistence" class="nav-link active"' in html
+    assert "test-id-123" in html
 
 
 def test_static_css_served(client: TestClient) -> None:

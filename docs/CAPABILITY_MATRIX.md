@@ -14,7 +14,7 @@ This document maps all capabilities exposed by `fbf-cli` to their corresponding 
 | `fbf run <yaml>` | `execute_study_plan` | Non-Persistent Simulation Dashboard (`/run/execute`) | P7 |
 | `fbf run --db <db>` | `create_study_repository`, `execute_study_plan` | Persistent Simulation & Experiment Logging (`/run/persistent`) | P9 |
 | `fbf optimize` | `optimize_study_swr` | Interactive SWR Optimizer Interface (`/optimize`) | P12 |
-| `fbf list --db <db>` | `SQLiteRepository.list_experiments()` | Database Experiment Browser (`/persistence/browser`) | P8 |
+| `fbf list --db <db>` | `SQLiteRepository.list_experiments_with_plans()` | Database Experiment Browser (`/persistence`) | P8 |
 | `fbf compare <ids>` | Database experiment query & cross-study metric comparison | Visual Strategy & Experiment Comparator (`/compare`) | P13 |
 | `fbf export` | `ResearchExecutionResult` serialization | Multi-format Result Exporter (CSV, JSON, YAML) | P14 |
 

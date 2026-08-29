@@ -5,8 +5,8 @@
 | Property | Status |
 |----------|--------|
 | Package Version | `0.1.0` |
-| Active Phase | `P7 — Simulation Execution` |
-| Phase State | `PHASE P7 READY FOR COMMIT — AWAITING AUTHORIZATION` |
+| Active Phase | `P8 — SQLite Database Browser & Persistence` |
+| Phase State | `PHASE P8 IMPLEMENTATION COMPLETE — AWAITING AUTHORIZATION` |
 | Core Dependency | `fbf-core 0.1.0` (editable sibling dependency) |
 | Dedicated Venv | `/mnt/datos/workspace/fbf/fbf-ui/.venv` |
 | Quality Gates | All passing (`ruff`, `mypy --strict`, `pytest`, boundary contracts) |
@@ -22,41 +22,65 @@
 - [x] **P4 — Configuration Validation & DTO Mapping** (Frozen at commit `55910c9`): REST API `/api/v1/study/validate` endpoint; validation error mapping and structured configuration DTO adapter.
 - [x] **P5 — Structured Configuration Editor UI** (Frozen at commit `55910c9`): Form-based parameter editor with live validation feedback; two-way synchronization between structured UI fields and canonical YAML.
 - [x] **P6 — Study Plan Dry Run & Preview** (Frozen at commit `91d1c27`): REST API `/api/v1/study/preview` endpoint; `StudyPlanPreviewDTO`; preview panel in structured editor.
+- [x] **P7 — Non-Persistent Simulation Execution & Progress Engine** (Frozen at commit `fefbbb3`): Execution state machine engine, background simulation runner, real-time progress polling, best-effort cancellation, in-memory result storage.
 
 ---
 
-## Active Phase: P7 — Simulation Execution
+## Active Phase: P8 — SQLite Database Browser & Persistence
 
 ### Status
 Implementation and quality gate validation are **complete**. Working tree is ready for final pre-commit verification.
-Awaiting explicit user authorization before creating the single atomic commit for Phase P7.
+Awaiting explicit user authorization before creating the single atomic commit for Phase P8.
 
-### Implemented in P7
-- `src/fbf/ui/orchestration/execution_service.py` — `submit_built_study()` method accepting pre-built `BuiltStudy`; `_results` dict for storing `ResearchExecutionResult`; `get_result()` method.
-- `src/fbf/ui/api/run.py` — `POST /api/v1/run/execute-config` endpoint accepting `StudyConfigDTO`; DTO-based execution path using same conversion as preview.
-- `src/fbf/ui/presentation/templates/study/edit.html` — Execute button, execution status panel, progress polling, and cancel button integrated into the structured editor.
-- `src/fbf/ui/presentation/templates/run.html` — Job lookup monitoring page replacing previous placeholder.
-- `tests/unit/test_execution_service.py` — Tests for `submit_built_study()`, result storage on completion/failure/cancellation (6 new tests).
-- `tests/unit/test_run_api.py` — HTTP contract tests for execute-config endpoint (3 new tests).
+### Implemented in P8
 
-### Architecture Decisions (P7)
-- **Plan rebuild during execution**: The editor sends the same `StudyConfigDTO` to both preview and execution. Both paths use `config_dto_to_canonical_dict()` → `StudyConfiguration.from_yaml()` → `build_study_plan()`. This guarantees configuration identity without server-side session state.
-- **Result storage**: `ResearchExecutionResult` (frozen, immutable) stored in-memory keyed by job_id. Available for P8 consumption.
-- **Cancellation semantics preserved**: Best-effort only — Core cannot be interrupted. Results discarded on cancellation. Existing state machine transitions unchanged.
-- **initial_wealth consistency**: Both preview and execution use the same hardcoded default `Money(Decimal("1000000.00"), Currency.EUR)`.
+**Core Repository (fbf-core):**
+- `SQLiteRepository.list_experiments_with_plans()` — Joins experiments with their latest plan metadata (status, unit_count) using a windowed subquery. Experiments without plans return `status=None, unit_count=None`.
+- `SQLiteRepository.list_plans_for_experiment(experiment_id)` — Returns lightweight plan summaries (plan_id, created_at, unit_count, status) without reconstructing `ResearchPlan`.
+- `SQLiteRepository.get_experiment_metadata(experiment_id)` — Returns experiment metadata without requiring `PersistenceReconstructionContext`.
+- `SQLiteRepository.get_execution_result_metadata(plan_id)` — Returns execution result summary (result_id, executed_at, duration_seconds, success/failure counts, success_rate) without loading simulation timelines.
+- 19 new Core repository tests covering all new methods.
+
+**UI Orchestration (fbf-ui):**
+- `PersistenceService` expanded with `list_experiments()`, `get_experiment_detail()`, `get_plan_result_summary()` methods.
+- DTOs: `ExperimentSummaryDTO`, `ExperimentDetailDTO`, `PlanSummaryDTO`, `ResultSummaryDTO`.
+- Status normalization: `None`/`"planned"` → `"pending"` (consistent with CLI convention).
+- 13 PersistenceService unit tests.
+
+**UI API (fbf-ui):**
+- `GET /api/v1/persistence/experiments` — List all experiments with status and unit count.
+- `GET /api/v1/persistence/experiments/{experiment_id}` — Experiment detail with plans.
+- `GET /api/v1/persistence/experiments/{experiment_id}/plans` — List plans for an experiment.
+- `GET /api/v1/persistence/plans/{plan_id}/results` — Execution result summary.
+- 8 API tests with proper error handling (404 for missing resources).
+
+**UI Presentation (fbf-ui):**
+- `/persistence` — Experiment list browser with table display, status badges, and links to detail.
+- `/persistence/experiments/{experiment_id}` — Experiment detail page with metadata and plans table.
+- Dark theme consistent with existing pages.
+- Client-side JavaScript for API consumption.
+- 2 new presentation tests (9 total).
+
+### Architecture Decisions (P8)
+- **Read-only browser**: P8 does not write to SQLite. All data comes from existing Core persistence.
+- **No arbitrary database paths**: Database path is configured at application level, not per-request.
+- **All SQL in Core**: UI/API/presentation layers never import `sqlite3` or execute SQL.
+- **Lightweight queries**: New repository methods avoid full domain object reconstruction.
+- **Result metadata**: `get_execution_result_metadata()` provides summary without loading simulation timelines.
 
 ### Core APIs Consumed
-- `build_study_plan()` — Builds `BuiltStudy` from `StudyConfiguration`.
-- `execute_study_plan()` — Executes the built study plan with `ExecutionOptions`.
-- `BuiltStudy` — Pre-built study plan container.
-- `ExecutionOptions` — Execution configuration including progress callback.
-- `ResearchExecutionResult` — Immutable execution result (stored for P8).
+- `list_experiments_with_plans()` — Browser list query.
+- `list_plans_for_experiment()` — Plan enumeration.
+- `get_experiment_metadata()` — Lightweight metadata.
+- `get_execution_result_metadata()` — Result summary.
+- `find_result_by_plan()` — Result existence check.
+- `create_study_repository()` — Repository factory.
 
 ### Core Modification Status
-**No Core modifications were required.** All P7 functionality uses the existing public Core API.
+**Core was modified** with 4 new repository methods. All methods are backward-compatible additions. Existing methods unchanged.
 
 ### CLI Status
-**CLI was untouched.** P7 is a UI-only feature.
+**CLI was untouched.** P8 is a UI-only feature. The CLI could optionally adopt the new repository methods in the future.
 
 ---
 
@@ -72,6 +96,6 @@ Awaiting explicit user authorization before creating the single atomic commit fo
 
 ## Next Steps
 
-1. Await explicit user commit authorization for Phase P7.
-2. After P7 commit, update this file to reflect `COMPLETE`.
-3. Request planning approval for **P8 — SQLite Database Browser**.
+1. Await explicit user commit authorization for Phase P8.
+2. After P8 commit, update this file to reflect `COMPLETE`.
+3. Proceed to **P9 — Persistent Simulation Logging** (execution result persistence).

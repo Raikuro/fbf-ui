@@ -78,8 +78,18 @@ def compare_view(request: Request) -> HTMLResponse:
 
 @presentation_router.get("/persistence", response_class=HTMLResponse)
 def persistence_view(request: Request) -> HTMLResponse:
-    """Render SQLite persistence page."""
+    """Render SQLite persistence browser page."""
     context = _common_context(
-        request, page_title="SQLite Persistence", active_section="persistence"
+        request, page_title="SQLite Persistence Browser", active_section="persistence"
     )
     return templates.TemplateResponse(request, "persistence.html", context)
+
+
+@presentation_router.get("/persistence/experiments/{experiment_id}", response_class=HTMLResponse)
+def persistence_experiment_view(request: Request, experiment_id: str) -> HTMLResponse:
+    """Render experiment detail page."""
+    context = _common_context(
+        request, page_title="Experiment Detail", active_section="persistence"
+    )
+    context["experiment_id"] = experiment_id
+    return templates.TemplateResponse(request, "persistence/experiment.html", context)

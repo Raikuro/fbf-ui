@@ -13,9 +13,16 @@ This document records verified, open technical work in `fbf-ui`.
 - [x] **P5 Structured Configuration Editing**: Editable form for parsed `StudyConfigDTO` fields; mutation and re-validation workflow.
 - [x] **P6 Study Plan Dry Run & Preview**: `BuiltStudy` plan summary (cohort count, date ranges) before committing to full execution.
 - [x] **P7 Simulation Execution**: Connected configuration/preview workflow to Core execution engine via DTO-based endpoint, Execute button in editor, progress polling, and result storage.
+- [x] **P8 SQLite Database Browser & Persistence**: Read-only browser for persisted experiments, plans, and execution metadata via Core's `SQLiteRepository`.
 
 ---
 
 ## Upcoming Technical Tasks
 
-- [ ] **P8/P9 SQLite Database Browser & Persistence**: Implement `/api/v1/persistence/studies` to query historical studies via Core's `SQLiteRepository`.
+- [ ] **P9 Persistent Simulation Logging**: Persist P7 in-memory execution results to SQLite after completion.
+- [ ] **P10 Non-Persistent Result Summary Dashboard**: Results summary view (success rate, terminal wealth statistics, worst-case cohorts).
+- [ ] **P11 Historical Cohort Heatmap Visualizations**: View model transformer & Chart spec generator for Cohort heatmaps.
+- [ ] **P12 SWR & Capital Preservation Charts**: SWR curve generator calling `optimize_study_swr` and rendering interactive SWR curves.
+- [ ] **P13 Multi-Strategy Comparator**: Side-by-side strategy comparator for multiple persisted database experiments.
+- [ ] **P14 Result Exporter & Reproducibility Package**: Export study results & charts to CSV, JSON, and YAML packages.
+- [ ] **P15 Hardening & E2E Validation**: High-value end-to-end integration tests.
