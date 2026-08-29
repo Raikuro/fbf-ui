@@ -272,3 +272,124 @@ def test_execute_then_status_flow(client: TestClient) -> None:
 
         final = client.get(f"/api/v1/run/status/{job_id}").json()
         assert final["status"] == "COMPLETED"
+
+
+# ------------------------------------------------------------------
+# execute-config endpoint
+# ------------------------------------------------------------------
+
+VALID_STUDY_CONFIG_DTO = {
+    "name": "Test Study",
+    "description": "Test",
+    "version": "1.0",
+    "dataset_identifier": "sp500_historical",
+    "allocation_policy_type": "ConstantAllocationPolicy",
+    "allocation_policy_values": [0.60, 0.80],
+    "withdrawal_policy_type": "FixedRealWithdrawalPolicy",
+    "withdrawal_policy_values": [0.04],
+    "horizon_years": [30],
+}
+
+
+def test_execute_config_valid_dto(client: TestClient) -> None:
+    """POST /api/v1/run/execute-config with valid DTO returns 201."""
+    with (
+        patch(
+            "fbf.ui.api.run._study_service",
+        ) as mock_study_svc,
+        patch(
+            "fbf.ui.api.run.StudyConfiguration",
+        ) as mock_config_cls,
+        patch(
+            "fbf.ui.api.run.build_study_plan",
+            return_value=_mock_built_study(5),
+        ),
+        patch(
+            "fbf.ui.orchestration.execution_service.execute_study_plan",
+            return_value=_mock_result(5),
+        ),
+    ):
+        mock_study_svc.config_dto_to_canonical_dict.return_value = {"metadata": {}}
+        mock_config_cls.from_yaml.return_value = MagicMock()
+
+        response = client.post(
+            "/api/v1/run/execute-config",
+            json=VALID_STUDY_CONFIG_DTO,
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["status"] == "QUEUED"
+    assert data["job_id"]
+    assert data["total_units"] == 5
+
+
+def test_execute_config_build_failure(client: TestClient) -> None:
+    """POST /api/v1/run/execute-config returns 400 when plan build fails."""
+
+    def failing_build(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("Missing required policy field: cohorts")
+
+    with (
+        patch(
+            "fbf.ui.api.run._study_service",
+        ) as mock_study_svc,
+        patch(
+            "fbf.ui.api.run.StudyConfiguration",
+        ) as mock_config_cls,
+        patch(
+            "fbf.ui.api.run.build_study_plan",
+            side_effect=failing_build,
+        ),
+    ):
+        mock_study_svc.config_dto_to_canonical_dict.return_value = {"metadata": {}}
+        mock_config_cls.from_yaml.return_value = MagicMock()
+
+        response = client.post(
+            "/api/v1/run/execute-config",
+            json=VALID_STUDY_CONFIG_DTO,
+        )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["detail"]["error"]["code"] == "INVALID_SCHEMA"
+
+
+def test_execute_config_then_status_flow(client: TestClient) -> None:
+    """Full lifecycle via execute-config: submit -> poll -> completed."""
+    with (
+        patch(
+            "fbf.ui.api.run._study_service",
+        ) as mock_study_svc,
+        patch(
+            "fbf.ui.api.run.StudyConfiguration",
+        ) as mock_config_cls,
+        patch(
+            "fbf.ui.api.run.build_study_plan",
+            return_value=_mock_built_study(3),
+        ),
+        patch(
+            "fbf.ui.orchestration.execution_service.execute_study_plan",
+            return_value=_mock_result(3),
+        ),
+    ):
+        mock_study_svc.config_dto_to_canonical_dict.return_value = {"metadata": {}}
+        mock_config_cls.from_yaml.return_value = MagicMock()
+
+        exec_resp = client.post(
+            "/api/v1/run/execute-config",
+            json=VALID_STUDY_CONFIG_DTO,
+        )
+        assert exec_resp.status_code == 201
+        job_id = exec_resp.json()["job_id"]
+        assert exec_resp.json()["status"] == "QUEUED"
+
+        for _ in range(20):
+            time.sleep(0.1)
+            status_resp = client.get(f"/api/v1/run/status/{job_id}")
+            assert status_resp.status_code == 200
+            if status_resp.json()["status"] == "COMPLETED":
+                break
+
+        final = client.get(f"/api/v1/run/status/{job_id}").json()
+        assert final["status"] == "COMPLETED"

@@ -2,13 +2,158 @@
 
 {% block content %}
 <div class="page-header">
-    <h1 class="page-title">Simulation Execution Workspace</h1>
-    <p class="page-description">Execute dry runs, launch backtests, and monitor execution progress</p>
+    <h1 class="page-title">Simulation Execution Monitor</h1>
+    <p class="page-description">Look up execution jobs by ID and monitor their status</p>
 </div>
 
 <div class="card">
-    <h2 class="card-title">Execution Control & Progress Tracking</h2>
-    <p>Dry-run previews, non-blocking background execution engine, and real-time status tracking will be available in future implementation phases.</p>
-    <div class="placeholder-badge">Scaffolding Placeholder — Simulation execution engine available in Phase P6/P7</div>
+    <h2 class="card-title">Job Lookup</h2>
+    <p class="page-description">Enter a job ID to check its execution status. Jobs are started from the <a href="/study/edit">Study Editor</a>.</p>
+
+    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <input type="text" id="job-id-input" placeholder="Enter job ID" style="flex: 1; padding: 0.5rem; border: 1px solid #555; border-radius: 4px; background: #1a1a2e; color: #e0e0e0;">
+        <button type="button" onclick="lookupJob()">Look Up</button>
+    </div>
 </div>
+
+<div id="job-result" class="card" style="display: none;">
+    <h2 class="card-title">Execution Status</h2>
+    <table class="preview-table">
+        <tr><td>Status</td><td id="job-status">-</td></tr>
+        <tr><td>Job ID</td><td id="job-id-display">-</td></tr>
+        <tr><td>Progress</td><td id="job-progress">-</td></tr>
+        <tr><td>Units</td><td id="job-units">-</td></tr>
+        <tr><td>Error</td><td id="job-error" style="color: #f87171;">-</td></tr>
+    </table>
+    <div id="job-progress-container" style="display: none; margin-top: 0.5rem;">
+        <div style="background: #333; border-radius: 4px; height: 20px; overflow: hidden;">
+            <div id="job-progress-bar" style="background: #38bdf8; height: 100%; width: 0%; transition: width 0.3s;"></div>
+        </div>
+    </div>
+    <div style="margin-top: 0.75rem;">
+        <button type="button" id="job-cancel-btn" onclick="cancelJob()" style="display: none;">Cancel Execution</button>
+        <button type="button" onclick="refreshJob()" style="margin-left: 0.5rem;">Refresh</button>
+    </div>
+</div>
+
+<script>
+    let currentJobId = null;
+    let pollTimer = null;
+
+    function lookupJob() {
+        const input = document.getElementById('job-id-input');
+        const jobId = input.value.trim();
+        if (!jobId) {
+            alert('Please enter a job ID');
+            return;
+        }
+        currentJobId = jobId;
+        fetchJobStatus(jobId);
+    }
+
+    function fetchJobStatus(jobId) {
+        fetch(`/api/v1/run/status/${jobId}`)
+            .then(response => {
+                if (!response.ok) return response.json().then(err => {
+                    throw new Error(err.detail?.message || 'Job not found');
+                });
+                return response.json();
+            })
+            .then(data => {
+                renderJobStatus(data);
+                if (['QUEUED', 'RUNNING', 'CANCELLING'].includes(data.status)) {
+                    startAutoRefresh();
+                } else {
+                    stopAutoRefresh();
+                }
+            })
+            .catch(error => {
+                document.getElementById('job-result').style.display = 'block';
+                document.getElementById('job-status').textContent = 'NOT FOUND';
+                document.getElementById('job-error').textContent = error.message;
+                document.getElementById('job-error').style.display = 'block';
+                document.getElementById('job-progress-container').style.display = 'none';
+                document.getElementById('job-cancel-btn').style.display = 'none';
+                stopAutoRefresh();
+            });
+    }
+
+    function renderJobStatus(data) {
+        document.getElementById('job-result').style.display = 'block';
+        document.getElementById('job-status').textContent = data.status;
+        document.getElementById('job-id-display').textContent = data.job_id;
+        document.getElementById('job-progress').textContent =
+            data.total_units > 0 ? `${data.progress_percentage.toFixed(1)}%` : '-';
+        document.getElementById('job-units').textContent =
+            data.total_units > 0 ? `${data.units_completed} / ${data.total_units}` : '-';
+
+        const errorEl = document.getElementById('job-error');
+        if (data.error_message) {
+            errorEl.textContent = data.error_message;
+            errorEl.style.display = 'block';
+        } else {
+            errorEl.textContent = '-';
+            errorEl.style.display = 'block';
+        }
+
+        if (data.total_units > 0) {
+            document.getElementById('job-progress-container').style.display = 'block';
+            document.getElementById('job-progress-bar').style.width = data.progress_percentage + '%';
+        } else {
+            document.getElementById('job-progress-container').style.display = 'none';
+        }
+
+        const cancelBtn = document.getElementById('job-cancel-btn');
+        if (data.status === 'RUNNING' || data.status === 'QUEUED') {
+            cancelBtn.style.display = 'inline-block';
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = 'Cancel Execution';
+        } else {
+            cancelBtn.style.display = 'none';
+        }
+    }
+
+    function refreshJob() {
+        if (currentJobId) fetchJobStatus(currentJobId);
+    }
+
+    function cancelJob() {
+        if (!currentJobId) return;
+        const btn = document.getElementById('job-cancel-btn');
+        btn.disabled = true;
+        btn.textContent = 'Cancelling...';
+
+        fetch(`/api/v1/run/cancel/${currentJobId}`, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) return response.json().then(err => {
+                    throw new Error(err.detail?.message || 'Cancel failed');
+                });
+                return response.json();
+            })
+            .then(data => renderJobStatus(data))
+            .catch(error => {
+                alert('Error cancelling: ' + error.message);
+                btn.disabled = false;
+                btn.textContent = 'Cancel Execution';
+            });
+    }
+
+    function startAutoRefresh() {
+        stopAutoRefresh();
+        pollTimer = setInterval(() => {
+            if (currentJobId) fetchJobStatus(currentJobId);
+        }, 1000);
+    }
+
+    function stopAutoRefresh() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    document.getElementById('job-id-input').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') lookupJob();
+    });
+</script>
 {% endblock %}

@@ -376,3 +376,119 @@ def test_concurrent_jobs_run_independently(service: ExecutionService) -> None:
 def test_shutdown_does_not_raise(service: ExecutionService) -> None:
     """shutdown() completes without error."""
     service.shutdown(wait=False)
+
+
+# ------------------------------------------------------------------
+# submit_built_study
+# ------------------------------------------------------------------
+
+
+def test_submit_built_study_creates_queued_job(service: ExecutionService) -> None:
+    """submit_built_study returns a QUEUED job with correct total_units."""
+    with patch(
+        "fbf.ui.orchestration.execution_service.execute_study_plan",
+        return_value=_make_mock_result(5),
+    ):
+        state = service.submit_built_study(_make_mock_built_study(5))
+
+    assert state.status == ExecutionStatus.QUEUED
+    assert state.total_units == 5
+    assert state.units_completed == 0
+    assert state.job_id
+
+
+def test_submit_built_study_reaches_completed(service: ExecutionService) -> None:
+    """A job submitted via submit_built_study reaches COMPLETED."""
+    event = threading.Event()
+
+    def slow_execute(*args: Any, **kwargs: Any) -> Any:
+        event.set()
+        time.sleep(0.05)
+        return _make_mock_result(3)
+
+    with patch(
+        "fbf.ui.orchestration.execution_service.execute_study_plan",
+        side_effect=slow_execute,
+    ):
+        state = service.submit_built_study(_make_mock_built_study(3))
+        event.wait(timeout=2.0)
+        time.sleep(0.2)
+
+    final = service.get_job_state(state.job_id)
+    assert final is not None
+    assert final.status == ExecutionStatus.COMPLETED
+
+
+# ------------------------------------------------------------------
+# Result storage
+# ------------------------------------------------------------------
+
+
+def test_result_stored_on_completion(service: ExecutionService) -> None:
+    """get_result returns the ResearchExecutionResult after COMPLETED."""
+    event = threading.Event()
+    mock_result = _make_mock_result(3)
+
+    def slow_execute(*args: Any, **kwargs: Any) -> Any:
+        event.set()
+        time.sleep(0.05)
+        return mock_result
+
+    with patch(
+        "fbf.ui.orchestration.execution_service.execute_study_plan",
+        side_effect=slow_execute,
+    ):
+        state = service.submit_built_study(_make_mock_built_study(3))
+        event.wait(timeout=2.0)
+        time.sleep(0.2)
+
+    result = service.get_result(state.job_id)
+    assert result is mock_result
+
+
+def test_result_not_stored_on_failure(service: ExecutionService) -> None:
+    """get_result returns None when execution fails."""
+
+    def failing_execute(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Core failed")
+
+    with patch(
+        "fbf.ui.orchestration.execution_service.execute_study_plan",
+        side_effect=failing_execute,
+    ):
+        state = service.submit_built_study(_make_mock_built_study(1))
+        time.sleep(0.2)
+
+    assert service.get_result(state.job_id) is None
+
+
+def test_result_not_stored_on_cancellation(service: ExecutionService) -> None:
+    """get_result returns None when a running job is cancelled."""
+    worker_started = threading.Event()
+    worker_block = threading.Event()
+
+    def blocking_execute(*args: Any, **kwargs: Any) -> Any:
+        worker_started.set()
+        worker_block.wait(timeout=5.0)
+        return _make_mock_result(1)
+
+    with patch(
+        "fbf.ui.orchestration.execution_service.execute_study_plan",
+        side_effect=blocking_execute,
+    ):
+        state = service.submit_built_study(_make_mock_built_study(1))
+        worker_started.wait(timeout=2.0)
+
+        service.request_cancel(state.job_id)
+        worker_block.set()
+        time.sleep(0.3)
+
+    assert service.get_result(state.job_id) is None
+    final = service.get_job_state(state.job_id)
+    assert final is not None
+    assert final.status == ExecutionStatus.CANCELLED
+
+
+def test_get_result_nonexistent_returns_none(service: ExecutionService) -> None:
+    """get_result returns None for unknown job_id."""
+    assert service.get_result("nonexistent") is None

@@ -196,7 +196,7 @@ class StudyService:
         }
 
         if config_dto.final_value_target_values is not None:
-            canonical["final_value_target_values"] = config_dto.final_value_target_values
+            canonical["final_value_target"] = config_dto.final_value_target_values
 
         return canonical
 

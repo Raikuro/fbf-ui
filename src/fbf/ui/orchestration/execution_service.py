@@ -84,6 +84,7 @@ class ExecutionService:
         self._jobs: dict[str, ExecutionStateDTO] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._futures: dict[str, Future[ResearchExecutionResult]] = {}
+        self._results: dict[str, ResearchExecutionResult] = {}
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="fbf-exec"
         )
@@ -96,6 +97,14 @@ class ExecutionService:
         """Retrieve state for a given execution job ID."""
         with self._lock:
             return self._jobs.get(job_id)
+
+    def get_result(self, job_id: str) -> ResearchExecutionResult | None:
+        """Retrieve the execution result for a completed job.
+
+        Returns ``None`` if the job is unknown or has not completed.
+        """
+        with self._lock:
+            return self._results.get(job_id)
 
     # ------------------------------------------------------------------
     # Job creation
@@ -115,7 +124,18 @@ class ExecutionService:
         wealth = initial_wealth or _DEFAULT_INITIAL_WEALTH
         config = _parse_and_build_config(yaml_content)
         built_study = build_study_plan(config, data_dir=data_dir, initial_wealth=wealth)
+        return self._submit_study(built_study)
 
+    def submit_built_study(self, built_study: BuiltStudy) -> ExecutionStateDTO:
+        """Submit a pre-built study plan for background execution.
+
+        Accepts a ``BuiltStudy`` directly, bypassing YAML parsing and plan
+        construction.  Returns the initial QUEUED state.
+        """
+        return self._submit_study(built_study)
+
+    def _submit_study(self, built_study: BuiltStudy) -> ExecutionStateDTO:
+        """Submit a BuiltStudy for background execution (shared implementation)."""
         job_id = uuid.uuid4().hex[:12]
         cancel_event = threading.Event()
         state = ExecutionStateDTO(
@@ -234,6 +254,8 @@ class ExecutionService:
             raise _JobCancelledError("Result discarded due to cancellation.")
 
         # --- Success ---
+        with self._lock:
+            self._results[job_id] = result
         self._transition(job_id, ExecutionStatus.COMPLETED)
         return result
 

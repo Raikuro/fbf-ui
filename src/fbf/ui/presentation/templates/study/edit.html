@@ -111,6 +111,7 @@
                 <div class="form-actions">
                     <button type="submit">Validate Configuration</button>
                     <button type="button" id="preview-btn" onclick="previewStudyPlan()" disabled>Preview Study Plan</button>
+                    <button type="button" id="execute-btn" onclick="executeStudy()" disabled>Execute Study</button>
                     <button type="button" onclick="resetForm()">Reset Form</button>
                     <button type="button" onclick="loadFromFile()">Load from File</button>
                 </div>
@@ -136,6 +137,27 @@
         <div id="study-plan-preview" style="display: none;">
             <h3>Study Plan Preview</h3>
             <div id="preview-content"></div>
+        </div>
+
+        <div id="execution-status" style="display: none;">
+            <h3>Execution Status</h3>
+            <div id="execution-info">
+                <table class="preview-table">
+                    <tr><td>Status</td><td id="exec-status">-</td></tr>
+                    <tr><td>Job ID</td><td id="exec-job-id">-</td></tr>
+                    <tr><td>Progress</td><td id="exec-progress">-</td></tr>
+                    <tr><td>Units</td><td id="exec-units">-</td></tr>
+                </table>
+                <div id="exec-progress-bar-container" style="display: none; margin-top: 0.5rem;">
+                    <div style="background: #333; border-radius: 4px; height: 20px; overflow: hidden;">
+                        <div id="exec-progress-bar" style="background: #38bdf8; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div id="exec-error" style="display: none; margin-top: 0.5rem; color: #f87171;"></div>
+                <div style="margin-top: 0.75rem;">
+                    <button type="button" id="exec-cancel-btn" onclick="cancelExecution()" style="display: none;">Cancel Execution</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -305,6 +327,7 @@
         const successDiv = document.getElementById('validation-success');
         const unitCountSpan = document.getElementById('unit-count');
         const previewBtn = document.getElementById('preview-btn');
+        const executeBtn = document.getElementById('execute-btn');
 
         if (data.is_valid) {
             statusDiv.innerHTML = '<span style="color: green;">✓ Valid Configuration</span>';
@@ -316,6 +339,7 @@
             statusDiv.innerHTML = '<span style="color: red;">✗ Invalid Configuration</span>';
             successDiv.style.display = 'none';
             previewBtn.disabled = true;
+            executeBtn.disabled = true;
 
             if (data.errors && data.errors.length > 0) {
                 errorsDiv.innerHTML = '<h4>Errors:</h4><ul>' +
@@ -353,7 +377,10 @@
         document.getElementById('validation-results').style.display = 'none';
         document.getElementById('yaml-preview').style.display = 'none';
         document.getElementById('study-plan-preview').style.display = 'none';
+        document.getElementById('execution-status').style.display = 'none';
         document.getElementById('preview-btn').disabled = true;
+        document.getElementById('execute-btn').disabled = true;
+        stopPolling();
         currentFormData = null;
     }
 
@@ -533,6 +560,7 @@
         .then(data => {
             renderPreview(data);
             document.getElementById('study-plan-preview').style.display = 'block';
+            document.getElementById('execute-btn').disabled = false;
         })
         .catch(error => {
             console.error('Preview error:', error);
@@ -608,6 +636,142 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    let executionPollInterval = null;
+
+    function executeStudy() {
+        if (!currentFormData) {
+            alert('Please validate and preview a configuration first');
+            return;
+        }
+
+        const studyConfigDTO = {
+            name: currentFormData.name || "Unnamed Study",
+            description: currentFormData.description || "",
+            version: currentFormData.version || "",
+            dataset_identifier: currentFormData.dataset_identifier || "",
+            allocation_policy_type: currentFormData.allocation_policy_type || "",
+            allocation_policy_values: currentFormData.allocation_values || [],
+            withdrawal_policy_type: currentFormData.withdrawal_policy_type || "",
+            withdrawal_policy_values: currentFormData.withdrawal_values || [],
+            horizon_years: currentFormData.horizon_years || [],
+            final_value_target_values: currentFormData['final-target-values'] || null,
+        };
+
+        const execBtn = document.getElementById('execute-btn');
+        execBtn.disabled = true;
+        execBtn.textContent = 'Starting...';
+
+        fetch('/api/v1/run/execute-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(studyConfigDTO),
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.detail?.message || 'Execution failed');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            showExecutionStatus(data);
+            startPolling(data.job_id);
+        })
+        .catch(error => {
+            console.error('Execution error:', error);
+            alert('Error starting execution: ' + error.message);
+            execBtn.disabled = false;
+            execBtn.textContent = 'Execute Study';
+        });
+    }
+
+    function showExecutionStatus(data) {
+        document.getElementById('execution-status').style.display = 'block';
+        document.getElementById('exec-status').textContent = data.status;
+        document.getElementById('exec-job-id').textContent = data.job_id;
+        document.getElementById('exec-progress').textContent =
+            data.total_units > 0 ? `${data.progress_percentage.toFixed(1)}%` : '-';
+        document.getElementById('exec-units').textContent =
+            data.total_units > 0 ? `${data.units_completed} / ${data.total_units}` : '-';
+
+        if (data.total_units > 0) {
+            document.getElementById('exec-progress-bar-container').style.display = 'block';
+            document.getElementById('exec-progress-bar').style.width = data.progress_percentage + '%';
+        }
+
+        const cancelBtn = document.getElementById('exec-cancel-btn');
+        if (data.status === 'RUNNING' || data.status === 'QUEUED') {
+            cancelBtn.style.display = 'inline-block';
+        } else {
+            cancelBtn.style.display = 'none';
+        }
+
+        const errorDiv = document.getElementById('exec-error');
+        if (data.error_message) {
+            errorDiv.textContent = data.error_message;
+            errorDiv.style.display = 'block';
+        } else {
+            errorDiv.style.display = 'none';
+        }
+    }
+
+    function startPolling(jobId) {
+        stopPolling();
+        executionPollInterval = setInterval(() => {
+            fetch(`/api/v1/run/status/${jobId}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Status fetch failed');
+                    return response.json();
+                })
+                .then(data => {
+                    showExecutionStatus(data);
+                    if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(data.status)) {
+                        stopPolling();
+                        document.getElementById('execute-btn').disabled = false;
+                        document.getElementById('execute-btn').textContent = 'Execute Study';
+                    }
+                })
+                .catch(error => {
+                    console.error('Polling error:', error);
+                    stopPolling();
+                });
+        }, 1000);
+    }
+
+    function stopPolling() {
+        if (executionPollInterval) {
+            clearInterval(executionPollInterval);
+            executionPollInterval = null;
+        }
+    }
+
+    function cancelExecution() {
+        const jobId = document.getElementById('exec-job-id').textContent;
+        if (!jobId || jobId === '-') return;
+
+        const cancelBtn = document.getElementById('exec-cancel-btn');
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Cancelling...';
+
+        fetch(`/api/v1/run/cancel/${jobId}`, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) return response.json().then(err => {
+                    throw new Error(err.detail?.message || 'Cancel failed');
+                });
+                return response.json();
+            })
+            .then(data => {
+                showExecutionStatus(data);
+            })
+            .catch(error => {
+                console.error('Cancel error:', error);
+                alert('Error cancelling: ' + error.message);
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Cancel Execution';
+            });
     }
 
     function generateYamlFromDTO(configDTO) {

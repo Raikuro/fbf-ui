@@ -5,7 +5,9 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException, status
+from fbf.core import build_study_plan
 from fbf.core.domain.model.money import Currency, Money
+from fbf.core.study.builder import StudyConfiguration
 from pydantic import BaseModel, Field
 
 from fbf.ui.orchestration.execution_service import (
@@ -13,9 +15,11 @@ from fbf.ui.orchestration.execution_service import (
     ExecutionStateDTO,
     ExecutionStatus,
 )
+from fbf.ui.orchestration.study_service import StudyConfigDTO, StudyService
 
 router = APIRouter(prefix="/run", tags=["run"])
 _service = ExecutionService()
+_study_service = StudyService()
 
 
 class ErrorDetail(BaseModel):
@@ -86,6 +90,33 @@ def start_execution(payload: ExecuteRequest) -> ExecutionStateDTO:
                 status.HTTP_400_BAD_REQUEST, "INVALID_YAML", str(err)
             ) from None
         raise
+
+
+@router.post(
+    "/execute-config",
+    response_model=ExecutionStateDTO,
+    status_code=status.HTTP_201_CREATED,
+)
+def execute_from_config(payload: StudyConfigDTO) -> ExecutionStateDTO:
+    """Start a background simulation execution from structured configuration.
+
+    Converts the StudyConfigDTO to a BuiltStudy via the same path used by
+    preview, then submits for background execution.  Returns immediately
+    with QUEUED status.
+    """
+    try:
+        canonical = _study_service.config_dto_to_canonical_dict(payload)
+        config = StudyConfiguration.from_yaml(canonical)
+        default_wealth = Money(Decimal("1000000.00"), Currency.EUR)
+        built_study = build_study_plan(
+            config, data_dir=None, initial_wealth=default_wealth,
+        )
+        return _service.submit_built_study(built_study)
+    except Exception as err:
+        msg = str(err)
+        is_schema = any(k in msg for k in ("policy", "cohorts", "dataset"))
+        code = "INVALID_SCHEMA" if is_schema else "INVALID_YAML"
+        raise _http_error(status.HTTP_400_BAD_REQUEST, code, msg) from None
 
 
 @router.get("/status/{job_id}", response_model=ExecutionStateDTO)

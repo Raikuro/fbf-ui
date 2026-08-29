@@ -61,7 +61,7 @@ class TestStudyServiceConfigEditing:
         assert canonical["withdrawal_policy"]["type"] == "FixedRealWithdrawalPolicy"
         assert canonical["withdrawal_policy"]["withdrawal_rate"] == [0.04]
         assert canonical["cohorts"]["horizon_years"] == [30]
-        assert "final_value_target_values" not in canonical
+        assert "final_value_target" not in canonical
 
     def test_config_dto_to_canonical_dict_with_optional_targets(
         self, service: StudyService
@@ -80,7 +80,7 @@ class TestStudyServiceConfigEditing:
 
         canonical = service.config_dto_to_canonical_dict(config_dto)
 
-        assert canonical["final_value_target_values"] == [100000.0]
+        assert canonical["final_value_target"] == [100000.0]
 
     def test_validate_config_dto_valid_with_mock(
         self, service: StudyService, mock_built_study: Any
@@ -287,7 +287,7 @@ class TestStudyServiceConfigEditing:
         wd_values = canonical["withdrawal_policy"]["withdrawal_rate"]
         assert wd_values == original_dto.withdrawal_policy_values
         assert canonical["cohorts"]["horizon_years"] == original_dto.horizon_years
-        assert canonical["final_value_target_values"] == original_dto.final_value_target_values
+        assert canonical["final_value_target"] == original_dto.final_value_target_values
 
     def test_validate_config_dto_empty_name(
         self, service: StudyService
