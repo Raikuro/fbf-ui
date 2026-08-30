@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
+from fbf.ui.config import _DEFAULT_DB_PATH
 from fbf.ui.orchestration.persistence_service import (
     ExperimentDetailDTO,
     ExperimentSummaryDTO,
@@ -17,9 +16,6 @@ from fbf.ui.orchestration.persistence_service import (
 
 router = APIRouter(prefix="/persistence", tags=["persistence"])
 _service = PersistenceService()
-
-# Default database path — configured at application level, not per-request.
-_DEFAULT_DB_PATH = Path("retirement_simulation.db")
 
 
 class ErrorDetail(BaseModel):

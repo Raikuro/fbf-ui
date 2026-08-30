@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from decimal import Decimal
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from fbf.core import (
@@ -34,8 +36,16 @@ from fbf.core import (
     execute_study_plan,
 )
 from fbf.core.domain.model.money import Currency, Money
+from fbf.core.persistence import (
+    DuplicateStudyError,
+    ExperimentIdentity,
+    create_persistence_context,
+    create_study_repository,
+)
 from fbf.core.study.builder import StudyConfiguration
 from pydantic import BaseModel, Field
+
+from fbf.ui.config import _DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +89,19 @@ class ExecutionService:
     Call ``shutdown()`` during application teardown.
     """
 
-    def __init__(self, max_workers: int = _DEFAULT_WORKERS) -> None:
+    def __init__(
+        self,
+        max_workers: int = _DEFAULT_WORKERS,
+        db_path: Path | None = None,
+        data_dir: str | None = None,
+    ) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, ExecutionStateDTO] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._futures: dict[str, Future[ResearchExecutionResult]] = {}
         self._results: dict[str, ResearchExecutionResult] = {}
+        self._db_path = db_path or _DEFAULT_DB_PATH
+        self._data_dir = data_dir
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="fbf-exec"
         )
@@ -214,7 +231,11 @@ class ExecutionService:
     ) -> ResearchExecutionResult:
         """Execute a study plan in a background thread.
 
-        Transitions: QUEUED → RUNNING → (COMPLETED | FAILED | CANCELLED).
+        Transitions: QUEUED -> RUNNING -> (COMPLETED | FAILED | CANCELLED).
+
+        On success, persists the experiment, plan, and execution result to
+        SQLite via Core persistence APIs.  Persistence failure is reported
+        as COMPLETED with an error message — the execution itself succeeded.
         """
         # --- Check cancellation before starting ---
         if cancel_event.is_set():
@@ -231,10 +252,12 @@ class ExecutionService:
         # --- Build progress callback ---
         progress_callback = self._make_progress_callback(job_id)
 
-        # --- Execute ---
+        # --- Execute (timed) ---
         try:
             options = ExecutionOptions(progress_callback=progress_callback)
+            exec_start = time.perf_counter()
             result = execute_study_plan(built_study, options=options)
+            execution_duration = time.perf_counter() - exec_start
         except Exception as exc:
             logger.exception("Job %s failed during execution", job_id)
             self._transition(
@@ -253,10 +276,32 @@ class ExecutionService:
             )
             raise _JobCancelledError("Result discarded due to cancellation.")
 
-        # --- Success ---
+        # --- Persist to SQLite ---
+        persistence_error: str | None = None
+        try:
+            self._persist_result(built_study, result, job_id, execution_duration)
+        except DuplicateStudyError:
+            logger.warning(
+                "Job %s: experiment already persisted (idempotent skip)", job_id
+            )
+        except Exception:
+            logger.exception("Job %s: persistence failed", job_id)
+            persistence_error = (
+                "Execution completed but persistence failed. "
+                "Result is available for this session only."
+            )
+
+        # --- Store result in memory ---
         with self._lock:
             self._results[job_id] = result
-        self._transition(job_id, ExecutionStatus.COMPLETED)
+
+        # --- Transition to COMPLETED ---
+        if persistence_error is not None:
+            self._transition(
+                job_id, ExecutionStatus.COMPLETED, error_message=persistence_error
+            )
+        else:
+            self._transition(job_id, ExecutionStatus.COMPLETED)
         return result
 
     def _make_progress_callback(self, job_id: str) -> Any:
@@ -281,6 +326,32 @@ class ExecutionService:
                 )
 
         return callback
+
+    def _persist_result(
+        self,
+        built_study: BuiltStudy,
+        result: ResearchExecutionResult,
+        job_id: str,
+        execution_duration: float,
+    ) -> None:
+        """Persist experiment, plan, and execution result to SQLite.
+
+        Uses the existing Core persistence APIs.  Raises on failure so the
+        caller can handle persistence errors distinctly from execution errors.
+        """
+        ctx = create_persistence_context(data_dir=self._data_dir)
+        repo = create_study_repository(str(self._db_path))
+
+        identity = ExperimentIdentity(
+            name=built_study.experiment_definition.name,
+            revision=f"exec-{job_id}",
+        )
+
+        experiment_id = repo.save_experiment(
+            identity, built_study.experiment_definition, ctx
+        )
+        plan_id = repo.save_plan(built_study.plan, experiment_id, ctx)
+        repo.save_execution_result(plan_id, result, ctx, execution_duration)
 
     # ------------------------------------------------------------------
     # Internal state transitions

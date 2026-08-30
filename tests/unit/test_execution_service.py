@@ -32,6 +32,15 @@ cohorts:
   horizon_years: [30]
 """
 
+_PERSISTENCE_PATCHES = (
+    patch(
+        "fbf.ui.orchestration.execution_service.create_persistence_context",
+    ),
+    patch(
+        "fbf.ui.orchestration.execution_service.create_study_repository",
+    ),
+)
+
 
 def _make_mock_built_study(total_units: int = 10) -> Any:
     """Create a mock BuiltStudy."""
@@ -61,11 +70,22 @@ def service() -> Generator[ExecutionService]:
     svc.shutdown(wait=True)
 
 
+@pytest.fixture
+def _mock_persistence() -> Generator[None]:
+    """Mock Core persistence APIs so tests do not touch SQLite."""
+    for p in _PERSISTENCE_PATCHES:
+        p.start()
+    yield
+    for p in _PERSISTENCE_PATCHES:
+        p.stop()
+
+
 # ------------------------------------------------------------------
 # State transitions
 # ------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_initial_submit_creates_queued_job(service: ExecutionService) -> None:
     """submit_job returns a QUEUED job with correct total_units."""
     with (
@@ -91,6 +111,7 @@ def test_get_nonexistent_job_returns_none(service: ExecutionService) -> None:
     assert service.get_job_state("nonexistent") is None
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_job_transitions_to_completed(service: ExecutionService) -> None:
     """A successfully executed job reaches COMPLETED."""
     event = threading.Event()
@@ -149,6 +170,7 @@ def test_job_transitions_to_failed_on_exception(service: ExecutionService) -> No
 # ------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_progress_callback_updates_state(service: ExecutionService) -> None:
     """Progress callback updates units_completed and progress_percentage."""
     callback_captured = threading.Event()
@@ -273,6 +295,7 @@ def test_cancel_running_result_discarded(service: ExecutionService) -> None:
 # ------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_cancel_completed_job_unchanged(service: ExecutionService) -> None:
     """Cancelling a COMPLETED job does not change its state."""
     with (
@@ -345,6 +368,7 @@ def test_never_completed_after_cancel(service: ExecutionService) -> None:
 # ------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_concurrent_jobs_run_independently(service: ExecutionService) -> None:
     """Multiple jobs execute concurrently and reach terminal states."""
     with (
@@ -383,6 +407,7 @@ def test_shutdown_does_not_raise(service: ExecutionService) -> None:
 # ------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_submit_built_study_creates_queued_job(service: ExecutionService) -> None:
     """submit_built_study returns a QUEUED job with correct total_units."""
     with patch(
@@ -397,6 +422,7 @@ def test_submit_built_study_creates_queued_job(service: ExecutionService) -> Non
     assert state.job_id
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_submit_built_study_reaches_completed(service: ExecutionService) -> None:
     """A job submitted via submit_built_study reaches COMPLETED."""
     event = threading.Event()
@@ -424,6 +450,7 @@ def test_submit_built_study_reaches_completed(service: ExecutionService) -> None
 # ------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_mock_persistence")
 def test_result_stored_on_completion(service: ExecutionService) -> None:
     """get_result returns the ResearchExecutionResult after COMPLETED."""
     event = threading.Event()
@@ -492,3 +519,239 @@ def test_result_not_stored_on_cancellation(service: ExecutionService) -> None:
 def test_get_result_nonexistent_returns_none(service: ExecutionService) -> None:
     """get_result returns None for unknown job_id."""
     assert service.get_result("nonexistent") is None
+
+
+# ------------------------------------------------------------------
+# P9: Execution result persistence
+# ------------------------------------------------------------------
+
+
+def test_persist_result_calls_core_apis(service: ExecutionService) -> None:
+    """_persist_result calls Core persistence APIs with correct arguments."""
+    built = _make_mock_built_study(3)
+    result = _make_mock_result(3)
+    mock_repo = MagicMock()
+    mock_repo.save_experiment.return_value = "exp-123"
+    mock_repo.save_plan.return_value = "plan-456"
+
+    with (
+        patch(
+            "fbf.ui.orchestration.execution_service.create_persistence_context"
+        ) as mock_ctx,
+        patch(
+            "fbf.ui.orchestration.execution_service.create_study_repository",
+            return_value=mock_repo,
+        ),
+    ):
+        service._persist_result(built, result, "job-abc", 1.23)
+
+    mock_ctx.assert_called_once_with(data_dir=None)
+    mock_repo.save_experiment.assert_called_once()
+    mock_repo.save_plan.assert_called_once_with(
+        built.plan, "exp-123", mock_ctx.return_value
+    )
+    mock_repo.save_execution_result.assert_called_once_with(
+        "plan-456", result, mock_ctx.return_value, 1.23
+    )
+
+
+def test_persist_result_uses_job_id_in_revision(service: ExecutionService) -> None:
+    """_persist_result uses exec-{job_id} as the experiment revision."""
+    built = _make_mock_built_study(1)
+    built.experiment_definition.name = "My Study"
+    result = _make_mock_result(1)
+    mock_repo = MagicMock()
+    mock_repo.save_experiment.return_value = "exp-001"
+    mock_repo.save_plan.return_value = "plan-002"
+
+    with (
+        patch("fbf.ui.orchestration.execution_service.create_persistence_context"),
+        patch(
+            "fbf.ui.orchestration.execution_service.create_study_repository",
+            return_value=mock_repo,
+        ),
+    ):
+        service._persist_result(built, result, "xyz789", 0.5)
+
+    identity_arg = mock_repo.save_experiment.call_args[0][0]
+    assert identity_arg.name == "My Study"
+    assert identity_arg.revision == "exec-xyz789"
+
+
+def test_persist_result_uses_custom_db_path() -> None:
+    """_persist_result passes the configured db_path to create_study_repository."""
+    from pathlib import Path
+
+    custom_path = Path("/tmp/test_p9.db")
+    svc = ExecutionService(max_workers=1, db_path=custom_path)
+    built = _make_mock_built_study(1)
+    result = _make_mock_result(1)
+    mock_repo = MagicMock()
+    mock_repo.save_experiment.return_value = "e"
+    mock_repo.save_plan.return_value = "p"
+
+    try:
+        with (
+            patch("fbf.ui.orchestration.execution_service.create_persistence_context"),
+            patch(
+                "fbf.ui.orchestration.execution_service.create_study_repository",
+                return_value=mock_repo,
+            ) as mock_factory,
+        ):
+            svc._persist_result(built, result, "j", 0.1)
+
+        mock_factory.assert_called_once_with(str(custom_path))
+    finally:
+        svc.shutdown(wait=True)
+
+
+def test_persist_result_uses_custom_data_dir() -> None:
+    """_persist_result passes the configured data_dir to create_persistence_context."""
+    svc = ExecutionService(max_workers=1, data_dir="/data/studies")
+    built = _make_mock_built_study(1)
+    result = _make_mock_result(1)
+    mock_repo = MagicMock()
+    mock_repo.save_experiment.return_value = "e"
+    mock_repo.save_plan.return_value = "p"
+
+    try:
+        with (
+            patch(
+                "fbf.ui.orchestration.execution_service.create_persistence_context"
+            ) as mock_ctx,
+            patch(
+                "fbf.ui.orchestration.execution_service.create_study_repository",
+                return_value=mock_repo,
+            ),
+        ):
+            svc._persist_result(built, result, "j", 0.1)
+
+        mock_ctx.assert_called_once_with(data_dir="/data/studies")
+    finally:
+        svc.shutdown(wait=True)
+
+
+@pytest.mark.usefixtures("_mock_persistence")
+def test_job_completed_with_persistence_success(service: ExecutionService) -> None:
+    """A successful execution with successful persistence reaches COMPLETED without error."""
+    event = threading.Event()
+
+    def slow_execute(*args: Any, **kwargs: Any) -> Any:
+        event.set()
+        time.sleep(0.05)
+        return _make_mock_result(2)
+
+    with patch(
+        "fbf.ui.orchestration.execution_service.execute_study_plan",
+        side_effect=slow_execute,
+    ):
+        state = service.submit_built_study(_make_mock_built_study(2))
+        event.wait(timeout=2.0)
+        time.sleep(0.3)
+
+    final = service.get_job_state(state.job_id)
+    assert final is not None
+    assert final.status == ExecutionStatus.COMPLETED
+    assert final.error_message is None
+
+
+@pytest.mark.usefixtures("_mock_persistence")
+def test_job_completed_with_persistence_failure(service: ExecutionService) -> None:
+    """A successful execution with failed persistence reaches COMPLETED with error message."""
+
+    def failing_persist(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("SQLite disk full")
+
+    event = threading.Event()
+
+    def slow_execute(*args: Any, **kwargs: Any) -> Any:
+        event.set()
+        time.sleep(0.05)
+        return _make_mock_result(2)
+
+    with (
+        patch(
+            "fbf.ui.orchestration.execution_service.execute_study_plan",
+            side_effect=slow_execute,
+        ),
+        patch.object(
+            ExecutionService, "_persist_result", side_effect=failing_persist
+        ),
+    ):
+        state = service.submit_built_study(_make_mock_built_study(2))
+        event.wait(timeout=2.0)
+        time.sleep(0.3)
+
+    final = service.get_job_state(state.job_id)
+    assert final is not None
+    assert final.status == ExecutionStatus.COMPLETED
+    assert final.error_message is not None
+    assert "persistence failed" in final.error_message.lower()
+
+
+@pytest.mark.usefixtures("_mock_persistence")
+def test_job_completed_with_duplicate_study_error(service: ExecutionService) -> None:
+    """A successful execution with DuplicateStudyError reaches COMPLETED without error."""
+    from fbf.core.persistence import DuplicateStudyError
+
+    def duplicate_persist(*args: Any, **kwargs: Any) -> Any:
+        raise DuplicateStudyError("Study already exists")
+
+    event = threading.Event()
+
+    def slow_execute(*args: Any, **kwargs: Any) -> Any:
+        event.set()
+        time.sleep(0.05)
+        return _make_mock_result(2)
+
+    with (
+        patch(
+            "fbf.ui.orchestration.execution_service.execute_study_plan",
+            side_effect=slow_execute,
+        ),
+        patch.object(
+            ExecutionService, "_persist_result", side_effect=duplicate_persist
+        ),
+    ):
+        state = service.submit_built_study(_make_mock_built_study(2))
+        event.wait(timeout=2.0)
+        time.sleep(0.3)
+
+    final = service.get_job_state(state.job_id)
+    assert final is not None
+    assert final.status == ExecutionStatus.COMPLETED
+    assert final.error_message is None
+
+
+@pytest.mark.usefixtures("_mock_persistence")
+def test_execution_duration_excludes_persistence(service: ExecutionService) -> None:
+    """duration_seconds passed to save_execution_result excludes persistence time."""
+    event = threading.Event()
+    persist_captured: list[float] = []
+
+    def slow_execute(*args: Any, **kwargs: Any) -> Any:
+        event.set()
+        time.sleep(0.1)
+        return _make_mock_result(1)
+
+    def capture_duration(
+        _built: Any, _result: Any, _job_id: str, duration: float
+    ) -> None:
+        persist_captured.append(duration)
+
+    with (
+        patch(
+            "fbf.ui.orchestration.execution_service.execute_study_plan",
+            side_effect=slow_execute,
+        ),
+        patch.object(
+            ExecutionService, "_persist_result", side_effect=capture_duration
+        ),
+    ):
+        service.submit_built_study(_make_mock_built_study(1))
+        event.wait(timeout=2.0)
+        time.sleep(0.3)
+
+    assert len(persist_captured) == 1
+    assert persist_captured[0] >= 0.05
+    assert persist_captured[0] < 1.0
