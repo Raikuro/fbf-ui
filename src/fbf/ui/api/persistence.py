@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from fbf.ui.config import _DEFAULT_DB_PATH
@@ -11,11 +11,16 @@ from fbf.ui.orchestration.persistence_service import (
     ExperimentSummaryDTO,
     PersistenceService,
     PlanSummaryDTO,
+    ResultStatisticsDTO,
     ResultSummaryDTO,
+    TrajectoryDTO,
 )
 
 router = APIRouter(prefix="/persistence", tags=["persistence"])
 _service = PersistenceService()
+
+_MAX_PERCENTILES = 20
+_VALID_PERCENTILE_RANGE = (0.0, 100.0)
 
 
 class ErrorDetail(BaseModel):
@@ -94,3 +99,102 @@ def get_plan_results(plan_id: str) -> ResultSummaryDTO:
             f"No execution result found for plan {plan_id!r}.",
         )
     return summary
+
+
+@router.get(
+    "/results/{result_id}/summary",
+    response_model=ResultSummaryDTO,
+)
+def get_result_summary(result_id: str) -> ResultSummaryDTO:
+    """Get execution result summary by result_id."""
+    summary = _service.get_result_summary_by_id(_DEFAULT_DB_PATH, result_id)
+    if summary is None:
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "RESULT_NOT_FOUND",
+            f"Execution result {result_id!r} not found.",
+        )
+    return summary
+
+
+@router.get(
+    "/results/{result_id}/statistics",
+    response_model=ResultStatisticsDTO,
+)
+def get_result_statistics(result_id: str) -> ResultStatisticsDTO:
+    """Get aggregated per-unit statistics for an execution result.
+
+    Returns terminal wealth distribution, failure month histogram,
+    and max-drawdown statistics computed server-side from persisted data.
+    """
+    stats = _service.get_result_statistics(_DEFAULT_DB_PATH, result_id)
+    if stats is None:
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "RESULT_NOT_FOUND",
+            f"Execution result {result_id!r} not found.",
+        )
+    return stats
+
+
+def _parse_percentiles(raw: str | None) -> tuple[float, ...]:
+    """Parse and validate a comma-separated percentile string.
+
+    Returns a tuple of validated percentile values in [0, 100].
+    Raises HTTPException on invalid input.
+    """
+    if not raw:
+        return (10.0, 25.0, 50.0, 75.0, 90.0)
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) > _MAX_PERCENTILES:
+        raise _http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "INVALID_PERCENTILES",
+            f"Too many percentiles (max {_MAX_PERCENTILES}).",
+        )
+    values: list[float] = []
+    for part in parts:
+        try:
+            v = float(part)
+        except ValueError as exc:
+            raise _http_error(
+                status.HTTP_400_BAD_REQUEST,
+                "INVALID_PERCENTILES",
+                f"Invalid percentile value: {part!r}.",
+            ) from exc
+        lo, hi = _VALID_PERCENTILE_RANGE
+        if v < lo or v > hi:
+            raise _http_error(
+                status.HTTP_400_BAD_REQUEST,
+                "INVALID_PERCENTILES",
+                f"Percentile {v} out of range [{lo}, {hi}].",
+            )
+        values.append(v)
+    return tuple(values)
+
+
+@router.get(
+    "/results/{result_id}/trajectory",
+    response_model=TrajectoryDTO,
+)
+def get_result_trajectory(
+    result_id: str,
+    percentiles: str | None = Query(
+        default=None,
+        description="Comma-separated percentile values (0-100). Default: 10,25,50,75,90.",
+    ),
+) -> TrajectoryDTO:
+    """Get percentile-banded trajectory across all simulation units per month.
+
+    Returns portfolio value percentile bands at each month index,
+    suitable for rendering median + confidence-interval charts.
+    """
+    pcts = _parse_percentiles(percentiles)
+    traj = _service.get_result_trajectory(_DEFAULT_DB_PATH, result_id, pcts)
+    if traj is None:
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "RESULT_NOT_FOUND",
+            f"Execution result {result_id!r} not found.",
+        )
+    return traj

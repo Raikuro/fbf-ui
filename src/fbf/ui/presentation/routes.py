@@ -93,3 +93,13 @@ def persistence_experiment_view(request: Request, experiment_id: str) -> HTMLRes
     )
     context["experiment_id"] = experiment_id
     return templates.TemplateResponse(request, "persistence/experiment.html", context)
+
+
+@presentation_router.get("/results/{result_id}", response_class=HTMLResponse)
+def result_detail_view(request: Request, result_id: str) -> HTMLResponse:
+    """Render results dashboard page for a specific execution result."""
+    context = _common_context(
+        request, page_title="Result Dashboard", active_section="results"
+    )
+    context["result_id"] = result_id
+    return templates.TemplateResponse(request, "results/detail.html", context)

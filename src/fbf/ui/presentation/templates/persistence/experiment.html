@@ -91,8 +91,8 @@ function buildPlansTable(plans) {
                            plan.status === 'failed' ? 'status-failed' :
                            plan.status === 'executing' ? 'status-executing' : 'status-pending';
         const createdDate = plan.created_at ? plan.created_at.substring(0, 10) : '-';
-        const resultsBadge = plan.has_results ?
-            '<span class="results-badge results-yes">Available</span>' :
+        const resultsCell = plan.has_results ?
+            '<span class="results-badge results-yes" data-plan-id="' + escapeHtml(plan.plan_id) + '">Loading...</span>' :
             '<span class="results-badge results-no">None</span>';
 
         html += '<tr>';
@@ -100,12 +100,32 @@ function buildPlansTable(plans) {
         html += '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(plan.status) + '</span></td>';
         html += '<td>' + plan.unit_count + '</td>';
         html += '<td>' + createdDate + '</td>';
-        html += '<td>' + resultsBadge + '</td>';
+        html += '<td>' + resultsCell + '</td>';
         html += '</tr>';
     }
 
     html += '</tbody></table>';
     return html;
+}
+
+async function enrichResultsLinks() {
+    const badges = document.querySelectorAll('.results-badge.results-yes[data-plan-id]');
+    for (const badge of badges) {
+        const planId = badge.getAttribute('data-plan-id');
+        try {
+            const response = await fetch('/api/v1/persistence/plans/' + planId + '/results');
+            if (response.ok) {
+                const data = await response.json();
+                badge.innerHTML = '<a href="/results/' + escapeHtml(data.result_id) + '" class="link-button">View Dashboard</a>';
+                badge.classList.remove('results-yes');
+                badge.classList.add('results-dashboard');
+            } else {
+                badge.textContent = 'Available';
+            }
+        } catch (e) {
+            badge.textContent = 'Available';
+        }
+    }
 }
 
 function escapeHtml(text) {
@@ -115,7 +135,7 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-loadExperiment();
+loadExperiment().then(function() { enrichResultsLinks(); });
 </script>
 
 <style>
@@ -213,6 +233,10 @@ loadExperiment();
 .results-no {
     background-color: rgba(148, 163, 184, 0.1);
     color: #64748b;
+}
+.results-dashboard {
+    background-color: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
 }
 .text-muted {
     color: var(--text-muted);

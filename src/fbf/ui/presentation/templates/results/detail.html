@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <nav class="breadcrumb">
+        <a href="/persistence">Experiments</a>
+        <span class="separator">/</span>
+        <span class="current">Result Dashboard</span>
+    </nav>
+    <h1 class="page-title" id="result-title">Loading Result...</h1>
+    <p class="page-description" id="result-subtitle"></p>
+</div>
+
+<div class="card" id="summary-card" style="display:none;">
+    <h2 class="card-title">Result Summary</h2>
+    <div class="summary-grid" id="summary-grid"></div>
+</div>
+
+<div class="card" id="wealth-card" style="display:none;">
+    <h2 class="card-title">Terminal Wealth Distribution</h2>
+    <div class="chart-container">
+        <canvas id="wealth-chart"></canvas>
+    </div>
+</div>
+
+<div class="card" id="failure-card" style="display:none;">
+    <h2 class="card-title">Failure Timeline</h2>
+    <div class="chart-container">
+        <canvas id="failure-chart"></canvas>
+    </div>
+</div>
+
+<div class="card" id="trajectory-card" style="display:none;">
+    <h2 class="card-title">Aggregate Portfolio Trajectory</h2>
+    <div class="chart-container chart-container-wide">
+        <canvas id="trajectory-chart"></canvas>
+    </div>
+</div>
+
+<div class="card" id="error-card" style="display:none;">
+    <h2 class="card-title">Error</h2>
+    <p id="error-message" class="text-muted"></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+const RESULT_ID = '{{ result_id }}';
+
+let wealthChartInstance = null;
+let failureChartInstance = null;
+let trajectoryChartInstance = null;
+
+async function loadResultDashboard() {
+    try {
+        await Promise.all([
+            loadSummary(),
+            loadStatistics(),
+            loadTrajectory(),
+        ]);
+    } catch (error) {
+        showError('Failed to load result data. Check that the result exists and the database is accessible.');
+    }
+}
+
+async function loadSummary() {
+    const response = await fetch('/api/v1/persistence/results/' + RESULT_ID + '/summary');
+    if (!response.ok) {
+        if (response.status === 404) {
+            showError('Result not found. The result ID may be invalid or the result has not been persisted yet.');
+            return;
+        }
+        throw new Error('Summary API returned ' + response.status);
+    }
+    const data = await response.json();
+
+    document.getElementById('result-title').textContent =
+        'Result Dashboard — ' + data.result_id.substring(0, 8) + '...';
+    document.getElementById('result-subtitle').textContent =
+        data.total_units + ' simulation units executed on ' + formatDateTime(data.executed_at);
+
+    renderSummaryCard(data);
+}
+
+async function loadStatistics() {
+    const response = await fetch('/api/v1/persistence/results/' + RESULT_ID + '/statistics');
+    if (!response.ok) {
+        if (response.status === 404) return;
+        throw new Error('Statistics API returned ' + response.status);
+    }
+    const data = await response.json();
+
+    renderWealthChart(data);
+    renderFailureChart(data);
+}
+
+async function loadTrajectory() {
+    const response = await fetch('/api/v1/persistence/results/' + RESULT_ID + '/trajectory');
+    if (!response.ok) {
+        if (response.status === 404) return;
+        throw new Error('Trajectory API returned ' + response.status);
+    }
+    const data = await response.json();
+
+    renderTrajectoryChart(data);
+}
+
+function renderSummaryCard(data) {
+    const card = document.getElementById('summary-card');
+    const grid = document.getElementById('summary-grid');
+    card.style.display = 'block';
+
+    const entries = [
+        ['Total Units', data.total_units],
+        ['Successful', data.success_count],
+        ['Failed', data.failure_count],
+        ['Success Rate', (data.success_rate * 100).toFixed(1) + '%'],
+        ['Executed', formatDateTime(data.executed_at)],
+    ];
+
+    let html = '<dl class="metadata-list">';
+    for (const [label, value] of entries) {
+        html += '<dt>' + label + '</dt>';
+        html += '<dd>' + escapeHtml(String(value)) + '</dd>';
+    }
+    html += '</dl>';
+    grid.innerHTML = html;
+}
+
+function renderWealthChart(data) {
+    const tw = data.terminal_wealth;
+    const labels = ['Min', 'P10', 'P25', 'Median', 'P75', 'P90', 'Max'];
+    const values = [tw.min, tw.p10, tw.p25, tw.median, tw.p75, tw.p90, tw.max];
+
+    const card = document.getElementById('wealth-card');
+    card.style.display = 'block';
+
+    if (wealthChartInstance) wealthChartInstance.destroy();
+    wealthChartInstance = new Chart(document.getElementById('wealth-chart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Terminal Wealth',
+                data: values,
+                backgroundColor: 'rgba(56, 189, 248, 0.5)',
+                borderColor: '#38bdf8',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            return formatCurrency(ctx.parsed.y);
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    ticks: { color: '#94a3b8', callback: function(v) { return formatCurrencyShort(v); } },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                },
+                x: {
+                    ticks: { color: '#94a3b8' },
+                    grid: { display: false },
+                },
+            },
+        },
+    });
+}
+
+function renderFailureChart(data) {
+    const buckets = data.failure_months.histogram;
+    const card = document.getElementById('failure-card');
+    card.style.display = 'block';
+
+    let labels, values;
+    if (buckets.length === 0) {
+        labels = ['No Failures'];
+        values = [0];
+    } else {
+        labels = buckets.map(function(b) { return 'Month ' + b.month; });
+        values = buckets.map(function(b) { return b.count; });
+    }
+
+    if (failureChartInstance) failureChartInstance.destroy();
+    failureChartInstance = new Chart(document.getElementById('failure-chart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Failures',
+                data: values,
+                backgroundColor: 'rgba(239, 68, 68, 0.5)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: '#94a3b8', stepSize: 1 },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                },
+                x: {
+                    ticks: { color: '#94a3b8' },
+                    grid: { display: false },
+                },
+            },
+        },
+    });
+}
+
+function renderTrajectoryChart(data) {
+    const card = document.getElementById('trajectory-card');
+    card.style.display = 'block';
+
+    var COLORS = {
+        'p10': '#ef4444',
+        'p25': '#f97316',
+        'p50': '#38bdf8',
+        'p75': '#22c55e',
+        'p90': '#a855f7',
+    };
+    var FALLBACK = ['#6b7280', '#06b6d4', '#eab308', '#ec4899', '#14b8a6'];
+
+    var datasets = data.percentiles.map(function(p, idx) {
+        var key = 'p' + p.toFixed(0);
+        var color = COLORS[key] || FALLBACK[idx % FALLBACK.length];
+        return {
+            label: 'P' + p.toFixed(0),
+            data: data.series[key] || [],
+            borderColor: color,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.1,
+        };
+    });
+
+    if (trajectoryChartInstance) trajectoryChartInstance.destroy();
+    trajectoryChartInstance = new Chart(document.getElementById('trajectory-chart'), {
+        type: 'line',
+        data: {
+            labels: data.months.map(String),
+            datasets: datasets,
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    labels: { color: '#94a3b8' },
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            return ctx.dataset.label + ': ' + formatCurrency(ctx.parsed.y);
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { color: '#94a3b8', callback: function(v) { return formatCurrencyShort(v); } },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                },
+                x: {
+                    ticks: { color: '#94a3b8', maxTicksLimit: 12 },
+                    grid: { display: false },
+                    title: { display: true, text: 'Month', color: '#94a3b8' },
+                },
+            },
+        },
+    });
+}
+
+function showError(message) {
+    document.getElementById('error-card').style.display = 'block';
+    document.getElementById('error-message').textContent = message;
+}
+
+function formatDateTime(iso) {
+    if (!iso) return '-';
+    return iso.substring(0, 19).replace('T', ' ');
+}
+
+function formatCurrency(v) {
+    if (v == null) return '-';
+    return v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function formatCurrencyShort(v) {
+    if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+    if (v >= 1000) return (v / 1000).toFixed(0) + 'K';
+    return String(v);
+}
+
+function escapeHtml(text) {
+    if (text == null) return '';
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+loadResultDashboard();
+</script>
+
+<style>
+.breadcrumb {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+}
+.breadcrumb a {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+.breadcrumb a:hover {
+    text-decoration: underline;
+}
+.breadcrumb .separator {
+    margin: 0 0.4rem;
+    color: var(--text-muted);
+}
+.breadcrumb .current {
+    color: var(--text-muted);
+}
+.summary-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem 1.5rem;
+}
+.metadata-list dt {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.metadata-list dd {
+    color: var(--text-main);
+    margin-bottom: 0.5rem;
+}
+.chart-container {
+    position: relative;
+    height: 300px;
+    width: 100%;
+}
+.chart-container-wide {
+    height: 350px;
+}
+.text-muted {
+    color: var(--text-muted);
+}
+</style>
+{% endblock %}

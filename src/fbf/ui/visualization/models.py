@@ -38,3 +38,19 @@ class ChartSpecDTO(BaseModel):
     labels: list[str] = Field(default_factory=list)
     datasets: list[ChartDatasetDTO] = Field(default_factory=list)
     reproducibility: ReproducibilityEnvelopeDTO | None = None
+
+
+class SummaryCardEntryDTO(BaseModel):
+    """A single key-value pair in a summary card."""
+
+    key: str
+    label: str
+    value: str
+    unit: str = ""
+
+
+class SummaryCardDTO(BaseModel):
+    """Presentation-oriented summary card specification for the results dashboard."""
+
+    title: str
+    entries: list[SummaryCardEntryDTO]

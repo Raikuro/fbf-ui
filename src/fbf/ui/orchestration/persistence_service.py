@@ -70,6 +70,64 @@ class ResultSummaryDTO(BaseModel):
     success_rate: float
 
 
+class TerminalWealthStatsDTO(BaseModel):
+    """Aggregated terminal wealth statistics across all simulation units."""
+
+    min: float
+    max: float
+    mean: float
+    median: float
+    p10: float
+    p25: float
+    p75: float
+    p90: float
+
+
+class FailureMonthBucketDTO(BaseModel):
+    """A single bucket in the failure-month histogram."""
+
+    month: int
+    count: int
+
+
+class FailureMonthsHistogramDTO(BaseModel):
+    """Histogram of when simulations failed."""
+
+    histogram: list[FailureMonthBucketDTO]
+
+
+class MaxDrawdownStatsDTO(BaseModel):
+    """Aggregated max-drawdown statistics."""
+
+    min: float
+    max: float
+    mean: float
+    median: float
+
+
+class ResultStatisticsDTO(BaseModel):
+    """DTO providing aggregated per-unit statistics for a result."""
+
+    result_id: str
+    total_units: int
+    success_count: int
+    failure_count: int
+    terminal_wealth: TerminalWealthStatsDTO
+    failure_months: FailureMonthsHistogramDTO
+    max_drawdown: MaxDrawdownStatsDTO
+
+
+class TrajectoryDTO(BaseModel):
+    """DTO providing percentile-banded trajectory data across all units per month."""
+
+    result_id: str
+    total_units: int
+    month_count: int
+    months: list[int]
+    percentiles: list[float]
+    series: dict[str, list[float]]
+
+
 class PersistenceService:
     """Orchestrates SQLite study repository interactions without raw SQL."""
 
@@ -153,4 +211,75 @@ class PersistenceService:
             failure_count=int(meta["failure_count"]),
             total_units=int(meta["total_units"]),
             success_rate=float(meta["success_rate"]),
+        )
+
+    def get_result_summary_by_id(
+        self, db_path: Path, result_id: str
+    ) -> ResultSummaryDTO | None:
+        """Retrieve lightweight execution result summary by result_id.
+
+        Unlike ``get_plan_result_summary`` which looks up by plan_id,
+        this method looks up directly by result_id.
+        """
+        repo = self.open_repository(db_path)
+        plan_id = repo.find_plan_by_result(result_id)
+        if plan_id is None:
+            return None
+        meta = repo.get_execution_result_metadata(plan_id)
+        if meta is None:
+            return None
+        if meta["result_id"] != result_id:
+            return None
+        return ResultSummaryDTO(
+            result_id=meta["result_id"],
+            plan_id=meta["plan_id"],
+            executed_at=meta["executed_at"],
+            duration_seconds=float(meta["duration_seconds"]),
+            success_count=int(meta["success_count"]),
+            failure_count=int(meta["failure_count"]),
+            total_units=int(meta["total_units"]),
+            success_rate=float(meta["success_rate"]),
+        )
+
+    def get_result_statistics(
+        self, db_path: Path, result_id: str
+    ) -> ResultStatisticsDTO | None:
+        """Retrieve aggregated per-unit statistics for an execution result."""
+        repo = self.open_repository(db_path)
+        raw = repo.get_result_statistics(result_id)
+        if raw is None:
+            return None
+        return ResultStatisticsDTO(
+            result_id=raw["result_id"],
+            total_units=int(raw["total_units"]),
+            success_count=int(raw["success_count"]),
+            failure_count=int(raw["failure_count"]),
+            terminal_wealth=TerminalWealthStatsDTO(**raw["terminal_wealth"]),
+            failure_months=FailureMonthsHistogramDTO(
+                histogram=[
+                    FailureMonthBucketDTO(month=b["month"], count=b["count"])
+                    for b in raw["failure_months"]["histogram"]
+                ]
+            ),
+            max_drawdown=MaxDrawdownStatsDTO(**raw["max_drawdown"]),
+        )
+
+    def get_result_trajectory(
+        self,
+        db_path: Path,
+        result_id: str,
+        percentiles: tuple[float, ...] = (10.0, 25.0, 50.0, 75.0, 90.0),
+    ) -> TrajectoryDTO | None:
+        """Retrieve percentile-banded trajectory across all units per month."""
+        repo = self.open_repository(db_path)
+        raw = repo.get_result_trajectory_percentiles(result_id, percentiles)
+        if raw is None:
+            return None
+        return TrajectoryDTO(
+            result_id=raw["result_id"],
+            total_units=int(raw["total_units"]),
+            month_count=int(raw["month_count"]),
+            months=raw["months"],
+            percentiles=raw["percentiles"],
+            series=raw["series"],
         )
