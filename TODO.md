@@ -14,14 +14,14 @@ This document records verified, open technical work in `fbf-ui`.
 - [x] **P6 Study Plan Dry Run & Preview**: `BuiltStudy` plan summary (cohort count, date ranges) before committing to full execution.
 - [x] **P7 Simulation Execution**: Connected configuration/preview workflow to Core execution engine via DTO-based endpoint, Execute button in editor, progress polling, and result storage.
 - [x] **P8 SQLite Database Browser & Persistence**: Read-only browser for persisted experiments, plans, and execution metadata via Core's `SQLiteRepository`.
+- [x] **P9 Persistent Simulation Logging**: Persist P7 in-memory execution results to SQLite after completion.
+- [x] **P10 Result Summary Dashboard**: Results summary view with terminal wealth statistics, failure timeline, and portfolio trajectory charts.
+- [x] **P11 Historical Cohort Heatmap Visualization**: Parameter-first cohort × horizon heatmap with interactive parameter selector, `chartjs-chart-matrix` rendering, and full browser verification.
 
 ---
 
 ## Upcoming Technical Tasks
 
-- [ ] **P9 Persistent Simulation Logging**: Persist P7 in-memory execution results to SQLite after completion.
-- [ ] **P10 Non-Persistent Result Summary Dashboard**: Results summary view (success rate, terminal wealth statistics, worst-case cohorts).
-- [ ] **P11 Historical Cohort Heatmap Visualizations**: View model transformer & Chart spec generator for Cohort heatmaps.
 - [ ] **P12 SWR & Capital Preservation Charts**: SWR curve generator calling `optimize_study_swr` and rendering interactive SWR curves.
 - [ ] **P13 Multi-Strategy Comparator**: Side-by-side strategy comparator for multiple persisted database experiments.
 - [ ] **P14 Result Exporter & Reproducibility Package**: Export study results & charts to CSV, JSON, and YAML packages.

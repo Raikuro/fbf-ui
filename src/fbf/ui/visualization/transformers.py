@@ -6,6 +6,7 @@ from fbf.core import __version__ as core_version
 
 from fbf.ui import __version__ as ui_version
 from fbf.ui.orchestration.persistence_service import (
+    CohortGridDTO,
     ResultStatisticsDTO,
     TrajectoryDTO,
 )
@@ -38,6 +39,71 @@ class ResultVisualizationTransformer:
             labels=[],
             datasets=[],
             reproducibility=self._make_envelope("DECIMAL_FAST_PATH"),
+        )
+
+    def build_cohort_heatmap(
+        self,
+        grid: CohortGridDTO,
+        title: str = "Cohort × Horizon Heatmap",
+    ) -> ChartSpecDTO:
+        """Transform a cohort × horizon grid into a heatmap chart specification.
+
+        The heatmap encodes success/failure as integer values (1/0) with
+        tooltip metadata embedded in each cell.  Each dataset represents
+        one horizon, with data as a list of cell dicts containing:
+
+        - ``value``: ``1`` for success, ``0`` for failure
+        - ``tooltip``: human-readable hover string
+
+        Handles empty input deterministically — an empty grid produces an
+        empty chart with no datasets.
+        """
+        if not grid.cohorts or not grid.horizons:
+            return self.build_empty_cohort_chart(title=title)
+
+        year_labels = [
+            cohort[:4] if len(cohort) >= 4 else cohort
+            for cohort in grid.cohorts
+        ]
+
+        datasets: list[ChartDatasetDTO] = []
+        n_cohorts = len(grid.cohorts)
+        for h_idx, horizon in enumerate(grid.horizons):
+            success_row = [grid.grid.success[r][h_idx] for r in range(n_cohorts)]
+            fm_row = [grid.grid.failure_month[r][h_idx] for r in range(n_cohorts)]
+            tw_row = [grid.grid.terminal_wealth[r][h_idx] for r in range(n_cohorts)]
+
+            data: list[dict[str, object]] = []
+            for c_idx in range(n_cohorts):
+                success_val = 1 if success_row[c_idx] else 0
+                fm = fm_row[c_idx]
+                tw = tw_row[c_idx]
+                fm_str = str(fm) if fm is not None else "N/A"
+                tw_str = f"{tw:,.0f}" if tw is not None else "N/A"
+                tooltip = (
+                    f"{year_labels[c_idx]} | {horizon}y | "
+                    f"{'✓' if success_val else '✗'} | "
+                    f"Failure Mo: {fm_str} | Wealth: {tw_str}"
+                )
+                data.append({"value": success_val, "tooltip": tooltip})
+
+            datasets.append(
+                ChartDatasetDTO(
+                    label=f"{horizon}y",
+                    data=data,
+                    border_color=None,
+                    background_color=None,
+                )
+            )
+
+        return ChartSpecDTO(
+            chart_type="heatmap",
+            title=title,
+            x_axis_label="Start Year",
+            y_axis_label="Horizon (Years)",
+            labels=year_labels,
+            datasets=datasets,
+            reproducibility=self._make_envelope("COHORT_HEATMAP"),
         )
 
     def build_swr_curve_chart(

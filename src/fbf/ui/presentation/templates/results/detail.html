@@ -37,18 +37,42 @@
     </div>
 </div>
 
+<div class="card" id="cohort-heatmap-card" style="display:none;">
+    <h2 class="card-title">Cohort × Horizon Heatmap</h2>
+    <div class="p11-controls" id="p11-controls" style="display:none;">
+        <label for="p11-param-select" class="p11-label">Parameter Combination:</label>
+        <select id="p11-param-select" class="p11-select">
+            <option value="">-- Select Parameters --</option>
+        </select>
+    </div>
+    <div id="p11-loading" class="p11-loading" style="display:none;">
+        Loading heatmap data...
+    </div>
+    <div id="p11-empty" class="p11-empty" style="display:none;">
+        No parameter combinations available for this result.
+    </div>
+    <div id="p11-error" class="p11-error" style="display:none;"></div>
+    <div id="p11-heatmap-container" class="p11-heatmap-container" style="display:none;">
+        <canvas id="cohort-heatmap-chart"></canvas>
+    </div>
+    <div id="p11-summary" class="p11-summary" style="display:none;"></div>
+</div>
+
 <div class="card" id="error-card" style="display:none;">
     <h2 class="card-title">Error</h2>
     <p id="error-message" class="text-muted"></p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@2.0.1/dist/chartjs-chart-matrix.min.js"></script>
 <script>
 const RESULT_ID = '{{ result_id }}';
 
 let wealthChartInstance = null;
 let failureChartInstance = null;
 let trajectoryChartInstance = null;
+let cohortHeatmapInstance = null;
+let p11Parameters = [];
 
 async function loadResultDashboard() {
     try {
@@ -56,6 +80,7 @@ async function loadResultDashboard() {
             loadSummary(),
             loadStatistics(),
             loadTrajectory(),
+            loadP11Parameters(),
         ]);
     } catch (error) {
         showError('Failed to load result data. Check that the result exists and the database is accessible.');
@@ -314,6 +339,196 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+async function loadP11Parameters() {
+    var card = document.getElementById('cohort-heatmap-card');
+    card.style.display = 'block';
+
+    try {
+        var response = await fetch('/api/v1/persistence/results/' + RESULT_ID + '/parameters');
+        if (!response.ok) {
+            if (response.status === 404) {
+                document.getElementById('p11-empty').style.display = 'block';
+                return;
+            }
+            throw new Error('Parameters API returned ' + response.status);
+        }
+        var data = await response.json();
+        p11Parameters = data.parameters || [];
+
+        if (p11Parameters.length === 0) {
+            document.getElementById('p11-empty').style.display = 'block';
+            return;
+        }
+
+        var select = document.getElementById('p11-param-select');
+        select.innerHTML = '<option value="">-- Select Parameters --</option>';
+        p11Parameters.forEach(function(p, idx) {
+            var option = document.createElement('option');
+            option.value = idx;
+            option.textContent = 'Equity: ' + (p.equity_allocation * 100).toFixed(0) +
+                '% | WR: ' + (p.withdrawal_rate * 100).toFixed(1) + '%';
+            select.appendChild(option);
+        });
+
+        document.getElementById('p11-controls').style.display = 'block';
+        select.addEventListener('change', function() {
+            var idx = select.value;
+            if (idx !== '') {
+                loadP11CohortGrid(p11Parameters[parseInt(idx)]);
+            } else {
+                document.getElementById('p11-heatmap-container').style.display = 'none';
+                document.getElementById('p11-summary').style.display = 'none';
+            }
+        });
+    } catch (error) {
+        document.getElementById('p11-error').style.display = 'block';
+        document.getElementById('p11-error').textContent = 'Failed to load parameters: ' + error.message;
+    }
+}
+
+async function loadP11CohortGrid(params) {
+    document.getElementById('p11-loading').style.display = 'block';
+    document.getElementById('p11-heatmap-container').style.display = 'none';
+    document.getElementById('p11-summary').style.display = 'none';
+    document.getElementById('p11-error').style.display = 'none';
+
+    try {
+        var url = '/api/v1/persistence/results/' + RESULT_ID + '/cohort-grid' +
+            '?equity_allocation=' + params.equity_allocation +
+            '&withdrawal_rate=' + params.withdrawal_rate;
+        var response = await fetch(url);
+        if (!response.ok) {
+            var errBody = await response.json().catch(function() { return {}; });
+            var msg = errBody.detail && errBody.detail.error && errBody.detail.error.message
+                ? errBody.detail.error.message
+                : 'Cohort grid API returned ' + response.status;
+            throw new Error(msg);
+        }
+        var gridData = await response.json();
+        renderCohortHeatmap(gridData);
+    } catch (error) {
+        document.getElementById('p11-error').style.display = 'block';
+        document.getElementById('p11-error').textContent = 'Failed to load heatmap: ' + error.message;
+    } finally {
+        document.getElementById('p11-loading').style.display = 'none';
+    }
+}
+
+function renderCohortHeatmap(gridData) {
+    var container = document.getElementById('p11-heatmap-container');
+    container.style.display = 'block';
+
+    var cohorts = gridData.cohorts;
+    var horizons = gridData.horizons;
+    var grid = gridData.grid;
+
+    var yearLabels = cohorts.map(function(c) {
+        return c.length >= 4 ? c.substring(0, 4) : c;
+    });
+
+    var matrixData = [];
+    for (var h = 0; h < horizons.length; h++) {
+        for (var c = 0; c < cohorts.length; c++) {
+            var success = grid.success[c][h];
+            var fm = grid.failure_month[c][h];
+            var tw = grid.terminal_wealth[c][h];
+            matrixData.push({
+                x: yearLabels[c],
+                y: horizons[h] + 'y',
+                v: success ? 1 : 0,
+                fm: fm,
+                tw: tw,
+                cohort: cohorts[c],
+                horizon: horizons[h],
+            });
+        }
+    }
+
+    var ctx = document.getElementById('cohort-heatmap-chart').getContext('2d');
+    if (cohortHeatmapInstance) cohortHeatmapInstance.destroy();
+
+    cohortHeatmapInstance = new Chart(ctx, {
+        type: 'matrix',
+        data: {
+            datasets: [{
+                label: 'Cohort Heatmap',
+                data: matrixData,
+                backgroundColor: function(ctx) {
+                    var v = ctx.dataset.data[ctx.dataIndex].v;
+                    return v === 1 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)';
+                },
+                borderColor: function(ctx) {
+                    var v = ctx.dataset.data[ctx.dataIndex].v;
+                    return v === 1 ? '#22c55e' : '#ef4444';
+                },
+                borderWidth: 1,
+                width: function(ctx) {
+                    var a = ctx.chart.chartArea;
+                    if (!a) return 10;
+                    return (a.right - a.left) / yearLabels.length - 2;
+                },
+                height: function(ctx) {
+                    var a = ctx.chart.chartArea;
+                    if (!a) return 10;
+                    return (a.bottom - a.top) / horizons.length - 2;
+                },
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            aspectRatio: yearLabels.length > 50 ? 3 : yearLabels.length > 20 ? 2 : 1.5,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function(items) {
+                            if (!items.length) return '';
+                            var d = items[0].raw;
+                            return d.cohort + ' | ' + d.horizon + ' years';
+                        },
+                        label: function(ctx) {
+                            var d = ctx.raw;
+                            var status = d.v === 1 ? 'SUCCESS' : 'FAILURE';
+                            var lines = ['Status: ' + status];
+                            if (d.fm != null) lines.push('Failure Month: ' + d.fm);
+                            if (d.tw != null) lines.push('Terminal Wealth: ' + formatCurrency(d.tw));
+                            return lines;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    type: 'category',
+                    labels: yearLabels,
+                    ticks: {
+                        color: '#94a3b8',
+                        maxRotation: 90,
+                        autoSkip: yearLabels.length > 40,
+                        maxTicksLimit: yearLabels.length > 50 ? 30 : yearLabels.length > 20 ? 20 : yearLabels.length,
+                    },
+                    grid: { display: false },
+                    title: { display: true, text: 'Start Year', color: '#94a3b8' },
+                },
+                y: {
+                    type: 'category',
+                    labels: horizons.map(function(h) { return h + 'y'; }),
+                    ticks: { color: '#94a3b8' },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    title: { display: true, text: 'Horizon', color: '#94a3b8' },
+                },
+            },
+        },
+    });
+
+    var summary = document.getElementById('p11-summary');
+    summary.style.display = 'block';
+    summary.innerHTML = '<span class="p11-stat">' + gridData.success_count + ' successful</span>' +
+        '<span class="p11-stat p11-stat-fail">' + gridData.failure_count + ' failed</span>' +
+        '<span class="p11-stat">' + gridData.total_units + ' total</span>';
+}
+
 loadResultDashboard();
 </script>
 
@@ -361,6 +576,78 @@ loadResultDashboard();
 }
 .text-muted {
     color: var(--text-muted);
+}
+.p11-controls {
+    margin-bottom: 1rem;
+}
+.p11-label {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-right: 0.5rem;
+}
+.p11-select {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    min-width: 280px;
+}
+.p11-select:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+.p11-loading {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 2rem 0;
+    text-align: center;
+}
+.p11-empty {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 2rem 0;
+    text-align: center;
+}
+.p11-error {
+    color: #ef4444;
+    font-size: 0.9rem;
+    padding: 1rem;
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+}
+.p11-heatmap-container {
+    position: relative;
+    width: 100%;
+    overflow-x: auto;
+}
+.p11-heatmap-container canvas {
+    min-height: 300px;
+}
+.p11-summary {
+    margin-top: 1rem;
+    display: flex;
+    gap: 1.5rem;
+}
+.p11-stat {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.p11-stat::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #22c55e;
+    margin-right: 0.4rem;
+    vertical-align: middle;
+}
+.p11-stat-fail::before {
+    background-color: #ef4444;
 }
 </style>
 {% endblock %}

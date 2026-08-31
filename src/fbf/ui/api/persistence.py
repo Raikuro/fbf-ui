@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from fbf.ui.config import _DEFAULT_DB_PATH
 from fbf.ui.orchestration.persistence_service import (
+    AvailableParametersDTO,
+    CohortGridDTO,
     ExperimentDetailDTO,
     ExperimentSummaryDTO,
     PersistenceService,
@@ -198,3 +200,74 @@ def get_result_trajectory(
             f"Execution result {result_id!r} not found.",
         )
     return traj
+
+
+@router.get(
+    "/results/{result_id}/parameters",
+    response_model=AvailableParametersDTO,
+)
+def get_result_parameters(result_id: str) -> AvailableParametersDTO:
+    """Get unique parameter selectors for a result.
+
+    Returns unique ``(equity_allocation, withdrawal_rate)`` pairs
+    available for the cohort-grid endpoint.
+    """
+    params = _service.get_result_parameters(_DEFAULT_DB_PATH, result_id)
+    if params is None:
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "RESULT_NOT_FOUND",
+            f"Execution result {result_id!r} not found.",
+        )
+    return params
+
+
+@router.get(
+    "/results/{result_id}/cohort-grid",
+    response_model=CohortGridDTO,
+)
+def get_result_cohort_grid(
+    result_id: str,
+    equity_allocation: float | None = Query(
+        default=None,
+        description="Equity allocation to filter by.",
+    ),
+    withdrawal_rate: float | None = Query(
+        default=None,
+        description="Withdrawal rate to filter by.",
+    ),
+) -> CohortGridDTO:
+    """Get the cohort × horizon success/failure grid for a parameter set.
+
+    Both ``equity_allocation`` and ``withdrawal_rate`` are required.
+    Returns the grid with all matching horizons for the selected parameters.
+    """
+    if equity_allocation is None or withdrawal_rate is None:
+        raise _http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "INVALID_PARAMETERS",
+            "Both equity_allocation and withdrawal_rate are required.",
+        )
+
+    grid = _service.get_result_cohort_grid(
+        _DEFAULT_DB_PATH, result_id, equity_allocation, withdrawal_rate,
+    )
+    if grid is None:
+        # Distinguish between missing result and missing parameters
+        params = _service.get_result_parameters(
+            _DEFAULT_DB_PATH, result_id,
+        )
+        if params is None:
+            raise _http_error(
+                status.HTTP_404_NOT_FOUND,
+                "RESULT_NOT_FOUND",
+                f"Execution result {result_id!r} not found.",
+            )
+        raise _http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "PARAMETER_NOT_FOUND",
+            f"No units match parameters (equity_allocation={equity_allocation}, "
+            f"withdrawal_rate={withdrawal_rate}).",
+        )
+
+    return grid

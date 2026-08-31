@@ -128,6 +128,41 @@ class TrajectoryDTO(BaseModel):
     series: dict[str, list[float]]
 
 
+class ParameterSelectorDTO(BaseModel):
+    """DTO representing a unique parameter selector (equity, withdrawal)."""
+
+    equity_allocation: float
+    withdrawal_rate: float
+
+
+class AvailableParametersDTO(BaseModel):
+    """DTO listing available parameter selectors for a result."""
+
+    result_id: str
+    parameters: list[ParameterSelectorDTO]
+
+
+class CohortGridDataDTO(BaseModel):
+    """DTO containing the cohort × horizon grid data."""
+
+    success: list[list[bool]]
+    failure_month: list[list[int | None]]
+    terminal_wealth: list[list[float]]
+
+
+class CohortGridDTO(BaseModel):
+    """DTO providing the cohort × horizon success/failure grid for a parameter set."""
+
+    result_id: str
+    cohorts: list[str]
+    horizons: list[int]
+    parameters: dict[str, float]
+    grid: CohortGridDataDTO
+    total_units: int
+    success_count: int
+    failure_count: int
+
+
 class PersistenceService:
     """Orchestrates SQLite study repository interactions without raw SQL."""
 
@@ -282,4 +317,61 @@ class PersistenceService:
             months=raw["months"],
             percentiles=raw["percentiles"],
             series=raw["series"],
+        )
+
+    def get_result_parameters(
+        self, db_path: Path, result_id: str,
+    ) -> AvailableParametersDTO | None:
+        """Retrieve unique parameter selectors for a result.
+
+        Returns ``None`` when the result_id does not exist.
+        Returns unique ``(equity_allocation, withdrawal_rate)`` selectors.
+        """
+        repo = self.open_repository(db_path)
+        raw = repo.get_available_parameters(result_id)
+        if raw is None:
+            return None
+        return AvailableParametersDTO(
+            result_id=result_id,
+            parameters=[
+                ParameterSelectorDTO(
+                    equity_allocation=p["equity_allocation"],
+                    withdrawal_rate=p["withdrawal_rate"],
+                )
+                for p in raw
+            ],
+        )
+
+    def get_result_cohort_grid(
+        self,
+        db_path: Path,
+        result_id: str,
+        equity_allocation: float,
+        withdrawal_rate: float,
+    ) -> CohortGridDTO | None:
+        """Retrieve the cohort × horizon grid for a parameter set.
+
+        Returns ``None`` when:
+          - result_id does not exist
+          - No units match the parameter filter
+        """
+        repo = self.open_repository(db_path)
+        raw = repo.get_cohort_horizon_grid(
+            result_id, equity_allocation, withdrawal_rate,
+        )
+        if raw is None:
+            return None
+        return CohortGridDTO(
+            result_id=raw["result_id"],
+            cohorts=raw["cohorts"],
+            horizons=raw["horizons"],
+            parameters=raw["parameters"],
+            grid=CohortGridDataDTO(
+                success=raw["grid"]["success"],
+                failure_month=raw["grid"]["failure_month"],
+                terminal_wealth=raw["grid"]["terminal_wealth"],
+            ),
+            total_units=int(raw["total_units"]),
+            success_count=int(raw["success_count"]),
+            failure_count=int(raw["failure_count"]),
         )

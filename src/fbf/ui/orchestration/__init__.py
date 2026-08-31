@@ -8,8 +8,12 @@ from fbf.ui.orchestration.execution_service import (
     ExecutionStatus,
 )
 from fbf.ui.orchestration.persistence_service import (
+    AvailableParametersDTO,
+    CohortGridDataDTO,
+    CohortGridDTO,
     ExperimentDetailDTO,
     ExperimentSummaryDTO,
+    ParameterSelectorDTO,
     PersistenceService,
     PlanSummaryDTO,
     ResultSummaryDTO,
@@ -32,4 +36,8 @@ __all__ = [
     "ExperimentDetailDTO",
     "PlanSummaryDTO",
     "ResultSummaryDTO",
+    "AvailableParametersDTO",
+    "CohortGridDTO",
+    "CohortGridDataDTO",
+    "ParameterSelectorDTO",
 ]
